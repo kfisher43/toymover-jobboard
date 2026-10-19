@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toymover Job Board</title>
+<style>
+  :root { --bd:#d6dbe1; --hd:#eef1f5; --acc:#1f6feb; --ok:#1a7f37; --err:#cf222e; --warn:#9a6700; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font:13px/1.35 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:#1f2328; background:#fff; }
+  button, input, select, textarea { font:inherit; }
+  button { cursor:pointer; border:1px solid var(--bd); background:#f6f8fa; border-radius:6px; padding:4px 10px; }
+  button:hover { background:#eaeef2; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.primary:hover { background:#1a5fd0; }
+  .hidden { display:none !important; }
+  #fatal { position:fixed; top:0; left:0; right:0; z-index:100; background:#ffebe9; color:#a40e26; border-bottom:2px solid #cf222e; padding:8px 12px; font-size:13px; white-space:pre-wrap; max-height:40vh; overflow:auto; }
+  #loadMsg { margin-top:10px; color:#57606a; min-height:1.2em; font-size:12px; }
+  #loadMsg.bad { color:#cf222e; }
+
+  /* Sign-in */
+  #login { display:flex; align-items:center; justify-content:center; height:100%; background:#f3f5f8; }
+  #login form { background:#fff; border:1px solid var(--bd); border-radius:10px; padding:28px; width:340px; box-shadow:0 4px 18px rgba(0,0,0,.06); }
+  #login h1 { font-size:18px; margin:0 0 4px; }
+  #login p.sub { margin:0 0 18px; color:#57606a; }
+  #login label { display:block; font-weight:600; margin:10px 0 4px; }
+  #login input { width:100%; padding:7px 9px; border:1px solid var(--bd); border-radius:6px; }
+  #login button { width:100%; margin-top:16px; padding:8px; }
+  #loginMsg { margin-top:12px; color:var(--err); min-height:1.3em; }
+
+  /* App */
+  #app { display:flex; flex-direction:column; height:100%; }
+  #toolbar { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--bd); background:#fafbfc; }
+  #toolbar .title { font-weight:700; font-size:14px; margin-right:6px; white-space:nowrap; }
+  #toolbar input[type=search] { width:200px; padding:4px 8px; border:1px solid var(--bd); border-radius:6px; }
+  #toolbar select { padding:3px 4px; border:1px solid var(--bd); border-radius:6px; max-width:150px; }
+  #toolbar label.chk { display:flex; gap:4px; align-items:center; white-space:nowrap; }
+  #toolbar .spacer { flex:1; }
+  #toolbar .who { color:#57606a; white-space:nowrap; }
+  #summary { padding:4px 10px; color:#57606a; border-bottom:1px solid var(--bd); background:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #summary b { color:#1f2328; }
+
+  #wrap { flex:1; overflow:auto; position:relative; }
+  table { border-collapse:separate; border-spacing:0; }
+  th, td { border-right:1px solid var(--bd); border-bottom:1px solid var(--bd); padding:4px 6px; white-space:nowrap; text-align:left; vertical-align:top; }
+  thead th { position:sticky; top:0; background:var(--hd); z-index:2; font-weight:600; cursor:pointer; user-select:none; }
+  thead th:hover { background:#e2e7ee; }
+  thead th .arr { color:var(--acc); margin-left:3px; }
+  th.idc, td.idc { position:sticky; left:0; background:#f6f8fa; z-index:1; font-weight:600; border-right:2px solid #b7c0cb; }
+  thead th.idc { z-index:3; background:var(--hd); }
+  tbody tr:nth-child(even) td { background:#fbfcfd; }
+  tbody tr:nth-child(even) td.idc { background:#f1f3f6; }
+  tbody tr:hover td { background:#f0f6ff; }
+  tbody tr:hover td.idc { background:#e3edfc; }
+  td { max-width:260px; overflow:hidden; text-overflow:ellipsis; cursor:text; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td.ro { color:#57606a; cursor:default; }
+  td.wide { max-width:360px; }
+  td.editing { padding:0; overflow:visible; }
+  td.editing input, td.editing textarea, td.editing select { width:100%; min-width:120px; border:2px solid var(--acc); padding:3px 5px; outline:none; background:#fff; }
+  td.editing textarea { position:absolute; width:380px; height:120px; z-index:5; resize:both; box-shadow:0 4px 14px rgba(0,0,0,.18); }
+  td.saving { background:#fff8c5 !important; }
+  td.saved { background:#dafbe1 !important; transition:background 1.5s; }
+  td.err { background:#ffebe9 !important; outline:2px solid var(--err); outline-offset:-2px; }
+  tr.newrow td.idc { background:#dafbe1; }
+  .st { display:inline-block; padding:0 6px; border-radius:10px; font-size:12px; background:#eaeef2; }
+  .st-Invoiced { background:#dafbe1; color:#116329; } .st-Booked { background:#ddf4ff; color:#0550ae; }
+  .st-Scheduled { background:#fbefff; color:#8250df; } .st-In-Transit { background:#fff8c5; color:#7d4e00; }
+  .st-Delivered { background:#d1f0e0; color:#0a5c36; } .st-Cancelled { background:#ffebe9; color:#a40e26; }
+  .st-Paid { background:#eeebf3; color:#5e5672; }
+  #empty { padding:30px; color:#57606a; }
+
+  /* Popovers / modal / toasts */
+  #colPanel { position:absolute; z-index:20; background:#fff; border:1px solid var(--bd); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.15); padding:10px; max-height:70vh; overflow:auto; width:250px; }
+  #colPanel label { display:flex; gap:6px; align-items:center; padding:2px 0; }
+  #colPanel .btns { display:flex; gap:6px; margin-bottom:8px; }
+  #modalBg { position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:30; display:flex; align-items:center; justify-content:center; }
+  #modal { background:#fff; border-radius:10px; padding:20px; width:380px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+  #modal h2 { margin:0 0 10px; font-size:16px; }
+  #modal label { display:block; margin:8px 0 3px; font-weight:600; }
+  #modal input { width:100%; padding:6px 8px; border:1px solid var(--bd); border-radius:6px; }
+  #modal .btns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  #modalMsg { color:var(--err); margin-top:8px; min-height:1.2em; }
+  #toasts { position:fixed; right:14px; bottom:14px; z-index:40; display:flex; flex-direction:column; gap:6px; max-width:420px; }
+  .toast { padding:8px 12px; border-radius:8px; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.2); cursor:pointer; }
+  .toast.ok { background:var(--ok); } .toast.err { background:var(--err); } .toast.info { background:#444c56; }
+</style>
+</head>
+<body>
+
+<div id="fatal" class="hidden"></div>
+<noscript><div style="padding:14px;background:#fff8c5;border-bottom:1px solid #d4a72c">JavaScript is off or this is a preview window (Quick Look / mail preview). Open this file in Safari or Chrome to use the job board.</div></noscript>
+<div id="login">
+  <form id="loginForm" autocomplete="on">
+    <h1>Toymover Job Board</h1>
+    <p class="sub">Fisher Transport LLC · sign in to view and edit jobs</p>
+    <label for="email">Email</label>
+    <input id="email" type="email" value="toymover@gmail.com" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit" id="loginBtn" disabled>Loading…</button>
+    <div id="loginMsg"></div>
+    <div id="loadMsg">Loading the database library…</div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <div id="toolbar">
+    <span class="title">Toymover Jobs</span>
+    <input id="q" type="search" placeholder="Filter text…  (Ctrl+F)">
+    <select id="fWeek" title="Production week"></select>
+    <select id="fDriver" title="Driver"></select>
+    <select id="fStatus" title="Status"></select>
+    <label class="chk" title="Also load and show jobs with status Paid"><input type="checkbox" id="showPaid"> Show paid</label>
+    <button id="clearBtn" title="Clear all filters">Clear</button>
+    <button id="colBtn">Columns ▾</button>
+    <button id="newBtn" class="primary">+ New job</button>
+    <button id="refreshBtn" title="Reload all jobs from the database">↻ Refresh</button>
+    <span class="spacer"></span>
+    <span class="who" id="who"></span>
+    <button id="logoutBtn">Sign out</button>
+  </div>
+  <div id="summary">Loading…</div>
+  <div id="wrap">
+    <table id="grid"><thead></thead><tbody></tbody></table>
+    <div id="empty" class="hidden">No jobs match these filters.</div>
+  </div>
+</div>
+
+<div id="colPanel" class="hidden"></div>
+<div id="modalBg" class="hidden">
+  <div id="modal">
+    <h2>New job <span id="newIdLbl" style="color:#57606a;font-weight:400"></span></h2>
+    <label for="nPickup">Pickup name</label><input id="nPickup">
+    <label for="nCust">Delivery customer</label><input id="nCust">
+    <label for="nItem">Item type</label><input id="nItem">
+    <div style="color:#57606a;margin-top:8px">Status starts as “Booked”, booking date today. Fill in the rest in the grid.</div>
+    <div id="modalMsg"></div>
+    <div class="btns"><button id="nCancel" type="button">Cancel</button><button id="nCreate" class="primary" type="button">Create job</button></div>
+  </div>
+</div>
+<div id="toasts"></div>
+<datalist id="dl-driver_id"></datalist><datalist id="dl-source"></datalist>
+<datalist id="dl-direction"></datalist><datalist id="dl-item_category"></datalist>
+
+<script>
+// ---- Visible error reporting (works even if everything else fails) ----
+window.__showFatal = function (msg) {
+  var f = document.getElementById('fatal'); if (!f) return;
+  f.classList.remove('hidden');
+  f.textContent = (f.textContent ? f.textContent + '\n' : 'Something went wrong on this page (click to hide):\n') + msg;
+  f.onclick = function () { f.classList.add('hidden'); f.textContent = ''; };
+};
+window.addEventListener('error', function (e) {
+  if (e && e.target && e.target.tagName === 'SCRIPT') return; // script load failures are reported by the loader
+  window.__showFatal('Error: ' + (e.message || e) + (e.filename ? '  (' + String(e.filename).split('/').pop() + ':' + e.lineno + ')' : ''));
+}, true);
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason; window.__showFatal('Error: ' + (r && (r.message || r.msg) || r));
+});
+</script>
+<script>
+window.__startApp = () => {
+'use strict';
+const SUPABASE_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_oTkCYqxtkjne4DcntVN-tg_E-RORtfD'; // publishable key: safe to ship; RLS decides access
+const TABLE = 'jobs';
+const LS_HIDDEN = 'toymover.jobboard.hiddenCols.v1';
+const LS_SORT = 'toymover.jobboard.sort.v1';
+
+// Every column of public.jobs, in table order. t: text | num | date | ts
+const COLS = [
+  ['id','text'],['pickup_name','text'],['delivery_customer','text'],['driver_id','text'],['item_type','text'],
+  ['item_category','text'],['status','text'],['source','text'],['price','num'],['invoiced','num'],['broker','num'],
+  ['paid','num'],['driver_pay','num'],['driver_paid','num'],['contact_name','text'],['phone','text'],['email','text'],
+  ['production_week','date'],['delivery_week','date'],['booking_date','date'],['pickup_address','text'],
+  ['delivery_address','text'],['pickup_phone','text'],['delivery_phone','text'],['direction','text'],
+  ['stop_order','text'],['notes','text'],['created_at','ts'],['updated_at','ts']
+].map(([name,type]) => ({ name, type,
+  readonly: name === 'id' || type === 'ts',
+  wide: ['notes','pickup_address','delivery_address','item_type'].includes(name),
+  list: ['driver_id','source','direction','item_category'].includes(name) ? 'dl-' + name : null }));
+const COL = Object.fromEntries(COLS.map(c => [c.name, c]));
+const LABEL = { id:'ID', driver_id:'Driver', production_week:'Prod week', delivery_week:'Delivery week', booking_date:'Booked on', driver_pay:'Driver pay', driver_paid:'Driver paid', stop_order:'Stop order', created_at:'Created', updated_at:'Updated' };
+// Header tooltips (default: "Sort by <column>").
+const HEAD_TIP = { driver_paid:'Fill in only once payment has been made' };
+const label = n => LABEL[n] || n.replace(/_/g,' ').replace(/^./, s => s.toUpperCase());
+
+// The board shows only active jobs, plus Paid jobs when "Show paid" is on (off by default, not remembered).
+// The Status dropdown offers the active statuses plus Paid.
+// Anything else (Cancelled, Vacation, blank, ...) is never loaded and drops off after a save;
+// Paid jobs also drop off after a save while "Show paid" is off.
+const ACTIVE_STATUSES = ['Booked', 'Scheduled', 'In-Transit', 'Delivered', 'Invoiced'];
+const PAID_STATUS = 'Paid';
+const STATUS_CHOICES = [...ACTIVE_STATUSES, PAID_STATUS];
+let showPaid = false;
+const shownStatuses = () => showPaid ? STATUS_CHOICES : ACTIVE_STATUSES;
+const isActive = r => shownStatuses().includes(String(r.status ?? '').trim());
+
+const $ = id => document.getElementById(id);
+const esc = v => String(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+// localStorage can be unavailable/blocked for file:// pages in some browser setups: fall back to memory.
+const mem = {};
+const store = {
+  getItem: k => { try { return localStorage.getItem(k); } catch (e) { return k in mem ? mem[k] : null; } },
+  setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { mem[k] = String(v); } },
+  removeItem: k => { try { localStorage.removeItem(k); } catch (e) { delete mem[k]; } },
+};
+const readJSON = (k, d) => { try { return JSON.parse(store.getItem(k)) ?? d; } catch (e) { return d; } };
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: store,
+          storageKey: 'toymover-jobboard-auth',
+          lock: async (name, timeout, fn) => fn() } // single-tab page: skip navigator.locks (can hang on file://)
+});
+
+let rows = [];               // all jobs
+let byId = new Map();
+let pinned = new Set();      // ids created this session: always shown until refresh
+let hidden = new Set((Array.isArray(readJSON(LS_HIDDEN, [])) ? readJSON(LS_HIDDEN, []) : []).filter(n => COL[n] && n !== 'id'));
+let sort = readJSON(LS_SORT, null) || { col: 'id', dir: -1 };
+let editing = null;          // { td, id, col, input, old }
+let loadedFor = null;
+let loadSeq = 0;             // ignore results of a load that a newer load (e.g. Show paid toggle) superseded
+
+// ---------- toasts ----------
+function toast(msg, kind = 'info', ms = 3000) {
+  const d = document.createElement('div');
+  d.className = 'toast ' + kind; d.textContent = msg; d.title = 'Click to dismiss';
+  d.onclick = () => d.remove();
+  $('toasts').appendChild(d);
+  if (ms) setTimeout(() => d.remove(), ms);
+}
+
+// ---------- auth ----------
+function showLogin(msg = '') { $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('loginMsg').textContent = msg; $('password').focus(); }
+function showApp(session) {
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+  $('who').textContent = session.user.email || '';
+  if (loadedFor !== session.user.id) { loadedFor = session.user.id; load(); }
+}
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginBtn').disabled = true; $('loginMsg').textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+  $('loginBtn').disabled = false;
+  if (error) { $('loginMsg').textContent = 'Sign-in failed: ' + error.message; return; }
+  $('password').value = ''; $('loginMsg').textContent = '';
+});
+$('logoutBtn').onclick = async () => { await sb.auth.signOut(); };
+sb.auth.onAuthStateChange((ev, session) => {
+  if (session) showApp(session);
+  else { loadedFor = null; rows = []; byId.clear(); showLogin(ev === 'SIGNED_OUT' ? 'Signed out.' : ''); }
+});
+$('loginBtn').disabled = false; $('loginBtn').textContent = 'Sign in'; $('loadMsg').textContent = '';
+let settled = false;
+const sessionTimer = setTimeout(() => { if (!settled) { settled = true; showLogin(); } }, 6000);
+sb.auth.getSession()
+  .then(({ data }) => { settled = true; clearTimeout(sessionTimer); if (!data.session) showLogin(); })
+  .catch(err => { settled = true; clearTimeout(sessionTimer); showLogin('Could not restore session: ' + err.message); });
+
+// ---------- load ----------
+async function load() {
+  const seq = ++loadSeq; const statuses = shownStatuses();
+  $('summary').textContent = 'Loading jobs…';
+  const all = []; const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await sb.from(TABLE).select('*').in('status', statuses).order('id').range(from, from + page - 1);
+    if (seq !== loadSeq) return;
+    if (error) {
+      const denied = error.code === '42501' || /permission|denied/i.test(error.message);
+      $('summary').innerHTML = '<span style="color:#cf222e">Could not load jobs: ' + esc(error.message) +
+        (denied ? ' — the database does not yet allow this account to read jobs (RLS/permissions setup pending).' : '') + '</span>';
+      $('grid').querySelector('tbody').innerHTML = '';
+      return;
+    }
+    all.push(...data);
+    if (data.length < page) break;
+  }
+  rows = all.filter(isActive); byId = new Map(rows.map(r => [r.id, r])); pinned.clear();
+  if (rows.length === 0) toast('Signed in, but no jobs were returned. If the table has jobs, the read policy may not include this account yet.', 'err', 0);
+  buildFilterOptions(); renderHead(); render();
+}
+$('refreshBtn').onclick = () => { if (editing) commitEdit(); load(); };
+$('showPaid').checked = false;
+$('showPaid').addEventListener('change', () => { if (editing) commitEdit(); showPaid = $('showPaid').checked; load(); });
+
+// ---------- filters ----------
+function distinct(col) { return [...new Set(rows.map(r => r[col]).filter(v => v !== null && v !== ''))]; }
+function fillSelect(sel, allLabel, values, fmt = v => v, withBlank = true) {
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${esc(allLabel)}</option>` + (withBlank ? '<option value="__blank">(blank)</option>' : '') +
+    values.map(v => `<option value="${esc(v)}">${esc(fmt(v))}</option>`).join('');
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function fmtWeek(d) { const [y,m,dd] = d.split('-').map(Number); return 'Wk of ' + new Date(y, m-1, dd).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }); }
+function buildFilterOptions() {
+  fillSelect($('fWeek'), 'All prod weeks', distinct('production_week').sort().reverse(), fmtWeek);
+  fillSelect($('fDriver'), 'All drivers', distinct('driver_id').sort((a,b)=>a.localeCompare(b)));
+  fillSelect($('fStatus'), 'All statuses', shownStatuses(), v => v, false);
+  for (const c of COLS.filter(c => c.list)) {
+    $(c.list).innerHTML = distinct(c.name).sort().map(v => `<option value="${esc(v)}">`).join('');
+  }
+}
+const matchSel = (sel, v) => !sel || (sel === '__blank' ? (v === null || v === '') : String(v ?? '') === sel);
+function filtered() {
+  const q = $('q').value.trim().toLowerCase();
+  const terms = q ? q.split(/\s+/) : [];
+  const wk = $('fWeek').value, dr = $('fDriver').value, st = $('fStatus').value;
+  return rows.filter(r => {
+    if (!isActive(r)) return false;
+    if (pinned.has(r.id)) return true;
+    if (!matchSel(wk, r.production_week) || !matchSel(dr, r.driver_id) || !matchSel(st, r.status)) return false;
+    if (terms.length) {
+      const hay = COLS.map(c => r[c.name] ?? '').join(' \u0001 ').toLowerCase();
+      return terms.every(t => hay.includes(t));
+    }
+    return true;
+  });
+}
+for (const id of ['fWeek','fDriver','fStatus']) $(id).addEventListener('change', () => render());
+let qTimer; $('q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(render, 120); });
+$('clearBtn').onclick = () => { $('q').value=''; $('fWeek').value=''; $('fDriver').value=''; $('fStatus').value=''; render(); };
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !$('app').classList.contains('hidden')) { e.preventDefault(); $('q').focus(); $('q').select(); } });
+
+// ---------- sorting ----------
+const idNum = id => { const m = /(\d+)/.exec(id || ''); return m ? parseInt(m[1], 10) : -1; };
+function cmp(a, b, col) {
+  const x = a[col], y = b[col];
+  const xn = x === null || x === undefined || x === '', yn = y === null || y === undefined || y === '';
+  if (xn || yn) return xn && yn ? 0 : xn ? 1 : -1;   // blanks always last
+  if (col === 'id') return idNum(x) - idNum(y) || String(x).localeCompare(String(y));
+  if (COL[col].type === 'num') return Number(x) - Number(y);
+  return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' });
+}
+function sorted(list) {
+  if (!sort || !sort.col) return list;
+  const { col, dir } = sort;
+  return list.slice().sort((a, b) => {
+    const xn = a[col] == null || a[col] === '', yn = b[col] == null || b[col] === '';
+    if (xn !== yn) return xn ? 1 : -1;
+    return dir * cmp(a, b, col) || (idNum(b.id) - idNum(a.id));
+  });
+}
+
+// ---------- rendering ----------
+const visCols = () => COLS.filter(c => !hidden.has(c.name));
+function renderHead() {
+  $('grid').querySelector('thead').innerHTML = '<tr>' + visCols().map(c => {
+    const arr = sort && sort.col === c.name ? `<span class="arr">${sort.dir > 0 ? '▲' : '▼'}</span>` : '';
+    return `<th data-c="${c.name}" class="${c.name === 'id' ? 'idc' : ''}" title="${esc(HEAD_TIP[c.name] || 'Sort by ' + c.name)}">${esc(label(c.name))}${arr}</th>`;
+  }).join('') + '</tr>';
+}
+function fmt(c, v) {
+  if (v === null || v === undefined) return '';
+  if (c.type === 'num') return Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  if (c.type === 'ts') { const d = new Date(v); return isNaN(d) ? v : d.toLocaleString(undefined, { month:'short', day:'numeric', year:'2-digit', hour:'numeric', minute:'2-digit' }); }
+  return String(v);
+}
+function cellHtml(c, r) {
+  const v = r[c.name]; const text = fmt(c, v);
+  const cls = [c.name === 'id' ? 'idc' : '', c.type === 'num' ? 'num' : '', c.readonly ? 'ro' : '', c.wide ? 'wide' : ''].filter(Boolean).join(' ');
+  const inner = c.name === 'status' && v ? `<span class="st st-${esc(String(v).replace(/[^A-Za-z-]/g,''))}">${esc(text)}</span>` : esc(text);
+  return `<td data-c="${c.name}" class="${cls}"${text.length > 30 ? ` title="${esc(text)}"` : ''}>${inner}</td>`;
+}
+function rowHtml(r, cols) {
+  const cls = pinned.has(r.id) ? 'newrow' : '';
+  return `<tr data-id="${esc(r.id)}" class="${cls}">` + cols.map(c => cellHtml(c, r)).join('') + '</tr>';
+}
+function render() {
+  if (editing) commitEdit();
+  const list = sorted(filtered()); const cols = visCols();
+  $('grid').querySelector('tbody').innerHTML = list.map(r => rowHtml(r, cols)).join('');
+  $('empty').classList.toggle('hidden', list.length > 0);
+  const sum = k => list.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+  const money = n => '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  $('summary').innerHTML = `<b>${list.length}</b> of ${rows.length} ${showPaid ? 'active + paid' : 'active'} jobs shown` +
+    ` · Price <b>${money(sum('price'))}</b> · Broker <b>${money(sum('broker'))}</b> · Driver pay <b>${money(sum('driver_pay'))}</b> · Driver paid <b>${money(sum('driver_paid'))}</b>` +
+    ` · <span style="color:#8c959f">Click a cell to edit · Enter saves · Esc cancels · Tab moves right</span>`;
+}
+function refreshCell(td, r) {
+  const c = COL[td.dataset.c]; const tmp = document.createElement('tr');
+  tmp.innerHTML = cellHtml(c, r); const n = tmp.firstChild;
+  td.className = n.className; td.innerHTML = n.innerHTML;
+  if (n.title) td.title = n.title; else td.removeAttribute('title');
+}
+
+$('grid').querySelector('thead').addEventListener('click', e => {
+  const th = e.target.closest('th'); if (!th) return;
+  const col = th.dataset.c;
+  if (!sort || sort.col !== col) sort = { col, dir: 1 };
+  else if (sort.dir === 1) sort = { col, dir: -1 };
+  else sort = { col: 'id', dir: -1 };   // third click: back to default (newest first)
+  store.setItem(LS_SORT, JSON.stringify(sort));
+  renderHead(); render();
+});
+
+// ---------- editing ----------
+$('grid').querySelector('tbody').addEventListener('click', e => {
+  const td = e.target.closest('td'); if (!td || td.classList.contains('editing')) return;
+  startEdit(td);
+});
+function startEdit(td) {
+  if (editing) commitEdit();
+  const c = COL[td.dataset.c]; if (!c || c.readonly) return;
+  const id = td.closest('tr').dataset.id; const r = byId.get(id); if (!r) return;
+  const old = r[c.name];
+  let input;
+  if (c.name === 'notes') { input = document.createElement('textarea'); }
+  else if (c.name === 'status') {
+    input = document.createElement('select');
+    const opts = STATUS_CHOICES.includes(old) ? STATUS_CHOICES : [old ?? '', ...STATUS_CHOICES];
+    input.innerHTML = opts.map(v => `<option value="${esc(v)}">${esc(v || '(blank)')}</option>`).join('');
+    input.addEventListener('change', () => { if (editing && editing.input === input) commitEdit(); });
+  }
+  else {
+    input = document.createElement('input');
+    input.type = c.type === 'date' ? 'date' : 'text';
+    if (c.type === 'num') input.inputMode = 'decimal';
+    if (c.list) input.setAttribute('list', c.list);
+  }
+  input.value = old === null || old === undefined ? '' : String(old);
+  td.classList.remove('saved', 'err'); td.classList.add('editing');
+  td.innerHTML = ''; td.appendChild(input);
+  editing = { td, id, col: c.name, input, old };
+  input.focus(); if (input.select && input.type !== 'date' && input.tagName !== 'SELECT') input.select();
+  input.addEventListener('keydown', onEditKey);
+  input.addEventListener('blur', () => setTimeout(() => { if (editing && editing.input === input) commitEdit(); }, 0));
+}
+function onEditKey(e) {
+  const ta = e.target.tagName === 'TEXTAREA';
+  if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+  else if (e.key === 'Enter' && !(ta && e.shiftKey) && !(e.target.tagName === 'SELECT' && e.altKey)) { e.preventDefault(); const td = editing.td; commitEdit(); moveFrom(td, 'down'); }
+  else if (e.key === 'Tab') { e.preventDefault(); const td = editing.td; commitEdit(); moveFrom(td, e.shiftKey ? 'left' : 'right'); }
+}
+function moveFrom(td, dir) {
+  let t = null;
+  if (dir === 'right' || dir === 'left') {
+    t = td; do { t = dir === 'right' ? t.nextElementSibling : t.previousElementSibling; } while (t && COL[t.dataset.c].readonly);
+  } else if (dir === 'down') { return; /* stay put after Enter; avoids accidental edits */ }
+  if (t) { startEdit(t); t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+}
+function cancelEdit() {
+  if (!editing) return; const { td, id } = editing; editing = null;
+  td.classList.remove('editing'); refreshCell(td, byId.get(id));
+}
+function parseVal(c, raw) {
+  const s = raw.trim();
+  if (s === '') return { v: null };
+  if (c.type === 'num') {
+    const n = Number(s.replace(/[$,\s]/g, ''));
+    return isFinite(n) ? { v: n } : { err: `“${s}” is not a number` };
+  }
+  if (c.type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(s) ? { v: s } : { err: `“${s}” is not a date (YYYY-MM-DD)` };
+  return { v: c.name === 'notes' ? raw.replace(/\s+$/,'') : s };
+}
+function same(c, a, b) {
+  if ((a === null || a === undefined) && (b === null || b === undefined)) return true;
+  if (c.type === 'num' && a != null && b != null) return Number(a) === Number(b);
+  return String(a ?? '') === String(b ?? '');
+}
+function commitEdit() {
+  if (!editing) return;
+  const { td, id, col, input, old } = editing; editing = null;
+  const c = COL[col]; td.classList.remove('editing');
+  const p = parseVal(c, input.value);
+  const r = byId.get(id);
+  if (p.err) { refreshCell(td, r); td.classList.add('err'); td.title = p.err; toast(`${id} ${label(col)}: ${p.err} — not saved`, 'err', 6000); return; }
+  if (same(c, old, p.v)) { refreshCell(td, r); return; }
+  saveCell(td, id, col, old, p.v);
+}
+async function saveCell(td, id, col, old, val) {
+  const r = byId.get(id);
+  r[col] = val; refreshCell(td, r);   // optimistic
+  td.classList.add('saving'); td.title = 'Saving…';
+  const patch = { [col]: val, updated_at: new Date().toISOString() };
+  let error = null, data = null;
+  try { ({ data, error } = await sb.from(TABLE).update(patch).eq('id', id).select()); }
+  catch (ex) { error = { message: ex.message || String(ex) }; }
+  const liveTd = findTd(id, col) || td;
+  liveTd.classList.remove('saving');
+  if (!error && (!data || data.length === 0)) error = { message: 'no row was updated (the database refused the change — check permissions)' };
+  if (error) {
+    r[col] = old; refreshCell(liveTd, r);
+    liveTd.classList.add('err'); liveTd.title = 'Save failed: ' + error.message;
+    toast(`NOT saved — ${id} ${label(col)}: ${error.message}`, 'err', 0);
+    return;
+  }
+  Object.assign(r, data[0]); refreshCell(liveTd, r);
+  const up = findTd(id, 'updated_at'); if (up) refreshCell(up, r);
+  liveTd.classList.add('saved'); liveTd.title = 'Saved ' + new Date().toLocaleTimeString();
+  setTimeout(() => liveTd.classList.remove('saved'), 1800);
+  toast(`Saved ${id} · ${label(col)}`, 'ok', 1800);
+  if (!isActive(r)) {   // status moved outside the shown list (active, + Paid if Show paid is on): drop it off the board
+    const tr = liveTd.closest('tr');
+    setTimeout(() => { rows = rows.filter(x => x.id !== id); byId.delete(id); pinned.delete(id); if (tr && tr.isConnected) tr.remove(); render(); }, 900);
+    toast(`${id} is now “${r.status ?? '(blank)'}” and has been removed from the board`, 'info', 4000);
+  }
+  if (col in { driver_id:1, status:1, production_week:1, source:1, direction:1, item_category:1 }) buildFilterOptions();
+}
+function findTd(id, col) {
+  const tr = [...$('grid').tBodies[0].rows].find(tr => tr.dataset.id === id);
+  return tr ? [...tr.cells].find(td => td.dataset.c === col) : null;
+}
+window.addEventListener('beforeunload', e => { if (document.querySelector('td.saving')) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- columns panel ----------
+function renderColPanel() {
+  $('colPanel').innerHTML = '<div class="btns"><button data-a="all">Show all</button><button data-a="basic">Essentials only</button></div>' +
+    COLS.filter(c => c.name !== 'id').map(c => `<label><input type="checkbox" data-c="${c.name}" ${hidden.has(c.name) ? '' : 'checked'}> ${esc(label(c.name))}</label>`).join('');
+}
+const ESSENTIAL = ['pickup_name','delivery_customer','driver_id','item_type','status','price','broker','driver_pay','driver_paid','production_week','pickup_address','delivery_address','direction','notes'];
+function saveHidden() { store.setItem(LS_HIDDEN, JSON.stringify([...hidden])); renderHead(); render(); }
+$('colBtn').onclick = e => {
+  e.stopPropagation(); const p = $('colPanel');
+  if (!p.classList.contains('hidden')) { p.classList.add('hidden'); return; }
+  renderColPanel(); const b = $('colBtn').getBoundingClientRect();
+  p.style.top = (b.bottom + 4) + 'px'; p.style.left = Math.max(8, Math.min(b.left, innerWidth - 260)) + 'px';
+  p.classList.remove('hidden');
+};
+$('colPanel').addEventListener('click', e => e.stopPropagation());
+$('colPanel').addEventListener('change', e => { const n = e.target.dataset.c; if (!n) return; e.target.checked ? hidden.delete(n) : hidden.add(n); saveHidden(); });
+$('colPanel').addEventListener('click', e => {
+  const a = e.target.dataset && e.target.dataset.a; if (!a) return;
+  hidden = a === 'all' ? new Set() : new Set(COLS.map(c => c.name).filter(n => n !== 'id' && !ESSENTIAL.includes(n)));
+  saveHidden(); renderColPanel();
+});
+document.addEventListener('click', () => $('colPanel').classList.add('hidden'));
+
+// ---------- new job ----------
+const todayLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const nextId = () => 'J' + (Math.max(0, ...rows.map(r => idNum(r.id))) + 1);
+$('newBtn').onclick = () => {
+  if (editing) commitEdit();
+  ['nPickup','nCust','nItem'].forEach(i => $(i).value = '');
+  $('modalMsg').textContent = ''; $('newIdLbl').textContent = '';
+  $('modalBg').classList.remove('hidden'); $('nPickup').focus();
+};
+const closeModal = () => $('modalBg').classList.add('hidden');
+$('nCancel').onclick = closeModal;
+$('modalBg').addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); if (e.key === 'Enter') $('nCreate').click(); });
+$('nCreate').onclick = async () => {
+  const btn = $('nCreate'); btn.disabled = true; $('modalMsg').textContent = 'Creating…';
+  const base = { pickup_name: $('nPickup').value.trim() || null, delivery_customer: $('nCust').value.trim() || null,
+                 item_type: $('nItem').value.trim() || null, status: 'Booked', booking_date: todayLocal() };
+  // Next number must account for every job (incl. ones not shown), so fetch all ids (ids only).
+  const ids = await sb.from(TABLE).select('id').range(0, 99999);
+  if (ids.error) { btn.disabled = false; $('modalMsg').textContent = 'Not created: ' + ids.error.message; return; }
+  let n = Math.max(0, ...ids.data.map(r => idNum(r.id)), ...rows.map(r => idNum(r.id))) + 1, res;
+  for (let tries = 0; tries < 5; tries++, n++) {      // if someone else just took the id, try the next one
+    res = await sb.from(TABLE).insert({ id: 'J' + n, ...base }).select();
+    if (!res.error || res.error.code !== '23505') break;
+  }
+  btn.disabled = false;
+  if (res.error || !res.data || !res.data.length) { $('modalMsg').textContent = 'Not created: ' + (res.error ? res.error.message : 'the database refused the insert'); return; }
+  const r = res.data[0]; rows.push(r); byId.set(r.id, r); pinned.add(r.id);
+  closeModal(); buildFilterOptions(); render();
+  const tr = [...$('grid').tBodies[0].rows].find(t => t.dataset.id === r.id);
+  if (tr) { tr.scrollIntoView({ block: 'center' }); }
+  toast(`Created ${r.id}`, 'ok', 2500);
+};
+};
+</script>
+<script>
+// ---- Load supabase-js (pinned + integrity-checked), with a second CDN as fallback ----
+(function () {
+  var INTEGRITY = 'sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK';
+  var SOURCES = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js',
+    'https://unpkg.com/@supabase/supabase-js@2.118.0/dist/umd/supabase.js'
+  ];
+  var msg = document.getElementById('loadMsg'), failures = [];
+  function fail(text) {
+    msg.className = 'bad'; msg.textContent = text;
+    var b = document.getElementById('loginBtn'); b.textContent = 'Unavailable'; b.disabled = true;
+    window.__showFatal(text);
+  }
+  function tryLoad(i) {
+    if (i >= SOURCES.length) {
+      return fail('Could not load the database library, so sign-in is unavailable. Tried: ' + failures.join('; ') +
+        '. Check the internet connection (and any content blocker / firewall for cdn.jsdelivr.net and unpkg.com), then reload.');
+    }
+    var host = SOURCES[i].split('/')[2], done = false;
+    msg.textContent = 'Loading the database library from ' + host + '…';
+    var s = document.createElement('script');
+    s.src = SOURCES[i]; s.integrity = INTEGRITY; s.crossOrigin = 'anonymous';
+    var timer = setTimeout(function () { if (!done) { done = true; failures.push(host + ' timed out'); s.remove(); tryLoad(i + 1); } }, 15000);
+    s.onload = function () {
+      if (done) return; done = true; clearTimeout(timer);
+      if (!window.supabase || !window.supabase.createClient) { failures.push(host + ' loaded but library missing'); return tryLoad(i + 1); }
+      try { window.__startApp(); }
+      catch (e) { fail('The page failed to start: ' + (e && e.message || e)); }
+    };
+    s.onerror = function () {
+      if (done) return; done = true; clearTimeout(timer);
+      failures.push(host + ' blocked or unreachable (network, content blocker, or integrity check)');
+      tryLoad(i + 1);
+    };
+    document.head.appendChild(s);
+  }
+  if (typeof window.__startApp !== 'function') return fail('The page script did not load (syntax error?).');
+  tryLoad(0);
+})();
+</script>
+</body>
+</html>
