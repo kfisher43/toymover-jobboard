@@ -190,7 +190,7 @@ const label = n => LABEL[n] || n.replace(/_/g,' ').replace(/^./, s => s.toUpperC
 // The Status dropdown offers the active statuses plus Paid.
 // Anything else (Cancelled, Vacation, blank, ...) is never loaded and drops off after a save;
 // Paid jobs also drop off after a save while "Show paid" is off.
-const ACTIVE_STATUSES = ['Booked', 'Scheduled', 'In-Transit', 'Delivered', 'Invoiced'];
+const ACTIVE_STATUSES = ['Bid', 'Booked', 'Scheduled', 'In-Transit', 'Delivered', 'Invoiced'];
 const PAID_STATUS = 'Paid';
 const STATUS_CHOICES = [...ACTIVE_STATUSES, PAID_STATUS];
 let showPaid = false;
