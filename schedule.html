@@ -43,6 +43,11 @@
   ul.rows .lead { font-weight:600; }
   .note { color:var(--mute); font-size:13px; margin-top:8px; }
   .err { background:#fde8e8; border:1px solid #f1b5b5; color:#8a1f1f; padding:12px; border-radius:10px; }
+  .thumbs { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .thumbs a { display:block; line-height:0; }
+  .thumbs img { height:96px; width:auto; max-width:160px; object-fit:cover; border-radius:8px; border:1px solid var(--line); background:#eceff3; }
+  .thumbs.sm img { height:36px; max-width:56px; border-radius:5px; }
+  td .thumbs { margin-top:4px; }
   @media (max-width:600px){ dl { grid-template-columns:1fr; gap:0; } dt { margin-top:6px; } }
 </style>
 </head>
@@ -65,7 +70,7 @@
 
   var app = document.getElementById('app');
   var loadedEl = document.getElementById('loaded');
-  var jobs = [], weeks = [], curKey = null, selected = null;
+  var jobs = [], weeks = [], curKey = null, selected = null, photos = {};
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function blank(s) { return s == null || String(s).trim() === ''; }
@@ -120,7 +125,17 @@
       '<dt>Drop-off</dt><dd>' + stop(j.delivery_name, j.delivery_address, j.delivery_phone) + '</dd>' +
       (c ? '<dt>Contact</dt><dd>' + esc(c) + '</dd>' : '') +
       '<dt>Missing information</dt><dd class="' + (miss.length ? 'missing' : '') + '">' + (miss.length ? esc(miss.join('; ')) : 'None') + '</dd>' +
-      '</dl></div>';
+      '</dl>' + thumbs(j.id) + '</div>';
+  }
+
+  // Photos: photos/index.json maps job id -> file names (published by publish.sh). Jobs with none show nothing.
+  function thumbs(id, small) {
+    var f = photos[id];
+    if (!f || !f.length) return '';
+    return '<div class="thumbs' + (small ? ' sm' : '') + '">' + f.map(function (n) {
+      var u = 'photos/' + encodeURIComponent(id) + '/' + encodeURIComponent(n);
+      return '<a href="' + u + '" target="_blank" rel="noopener" title="Open full size"><img src="' + u + '" alt="Photo for job ' + esc(id) + '" loading="lazy"></a>';
+    }).join('') + '</div>';
   }
 
   function slug(s) { return 'd-' + String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
@@ -162,7 +177,7 @@
 
     html += '<h2 id="overview">Overview</h2><div class="tablewrap"><table><thead><tr><th>Driver</th><th>Item</th><th>Pickup city</th><th>Drop-off city</th><th>Status</th></tr></thead><tbody>' +
       list.map(function (j) {
-        return '<tr><td>' + esc(driverOf(j)) + '</td><td>' + esc(itemOf(j)) + '</td><td>' + esc(cityOf(j.pickup_address)) + '</td><td>' + esc(cityOf(j.delivery_address)) + '</td><td>' + statusBadge(j.status) + '</td></tr>';
+        return '<tr><td>' + esc(driverOf(j)) + '</td><td>' + esc(itemOf(j)) + thumbs(j.id, true) + '</td><td>' + esc(cityOf(j.pickup_address)) + '</td><td>' + esc(cityOf(j.delivery_address)) + '</td><td>' + statusBadge(j.status) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
 
     if (avail.length) {
@@ -214,12 +229,16 @@
     loadedEl.textContent = 'Loaded ' + t + ' CT, ' + d;
   }
 
+  var photosReq = fetch('photos/index.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; });
+
   fetch(SUPABASE_URL + '/rest/v1/schedule_view?select=' + COLS + '&order=week_start.asc.nullslast,id.asc', {
     headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, Accept: 'application/json' },
     cache: 'no-store'
   }).then(function (r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
+  }).then(function (rows) {
+    return photosReq.then(function (p) { photos = (p && typeof p === 'object') ? p : {}; return rows; });
   }).then(function (rows) {
     jobs = rows; stamp(); build(); render();
   }).catch(function (e) {
