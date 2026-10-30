@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Toymover Driver Schedule</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b2430; --mute:#5d6b7c; --line:#dde2e8; --accent:#1f5fbf; --warn:#9a5b00; --warnbg:#fff3dc; --okbg:#e8f1ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { margin:0 0 4px; font-size:26px; }
+  h2 { margin:28px 0 10px; font-size:19px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { margin:0 0 8px; font-size:15px; }
+  .sub { color:var(--mute); margin:0 0 4px; }
+  #loaded { color:var(--mute); font-size:13px; margin:0 0 14px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0; }
+  .tab { border:1px solid var(--line); background:var(--card); color:var(--ink); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit; }
+  .tab[aria-selected="true"] { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .tab .n { opacity:.7; margin-left:6px; font-size:12px; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:12px 0; }
+  .metric { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .metric b { display:block; font-size:24px; }
+  .metric span { color:var(--mute); font-size:13px; }
+  .metric.warn { background:var(--warnbg); border-color:#f0d9a8; }
+  .toc { margin:10px 0; display:flex; flex-wrap:wrap; gap:6px 14px; font-size:14px; }
+  .toc a { color:var(--accent); text-decoration:none; } .toc a:hover { text-decoration:underline; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#eef1f5; font-size:13px; color:var(--mute); }
+  tr:last-child td { border-bottom:0; }
+  .tablewrap { overflow-x:auto; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; background:#eceff3; white-space:nowrap; }
+  .badge.bid { background:var(--warnbg); color:var(--warn); font-weight:600; }
+  .badge.transit { background:var(--okbg); color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:10px 0; }
+  dl { margin:0; display:grid; grid-template-columns:140px 1fr; gap:5px 12px; }
+  dt { color:var(--mute); } dd { margin:0; word-break:break-word; }
+  .missing { color:var(--warn); }
+  ul.rows { list-style:none; padding:0; margin:0; }
+  ul.rows li { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; }
+  ul.rows .lead { font-weight:600; }
+  .note { color:var(--mute); font-size:13px; margin-top:8px; }
+  .err { background:#fde8e8; border:1px solid #f1b5b5; color:#8a1f1f; padding:12px; border-radius:10px; }
+  @media (max-width:600px){ dl { grid-template-columns:1fr; gap:0; } dt { margin-top:6px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Toymover Driver Schedule</h1>
+  <p class="sub">Every week with Toymover work, from the current week forward: jobs by driver, available jobs, and what information is missing. Read-only, live from the job database.</p>
+  <p id="loaded">Loading…</p>
+  <div id="app"></div>
+  <p class="note">Route stop order, miles and drive time are not stored in the job database, so they are not shown here. Pricing, pay and internal notes are never loaded by this page.</p>
+</main>
+<script>
+(function () {
+  'use strict';
+  var SUPABASE_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
+  // Publishable (anon) key, same as the job board. It can only read public.schedule_view, a money-free projection.
+  var SUPABASE_KEY = 'sb_publishable_oTkCYqxtkjne4DcntVN-tg_E-RORtfD';
+  var TZ = 'America/Chicago';
+  var COLS = 'id,status,week_start,delivery_week,driver_name,item_type,item_category,pickup_name,pickup_address,pickup_phone,delivery_name,delivery_address,delivery_phone,contact_name,contact_phone,missing_info';
+
+  var app = document.getElementById('app');
+  var loadedEl = document.getElementById('loaded');
+  var jobs = [], weeks = [], curKey = null, selected = null;
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function blank(s) { return s == null || String(s).trim() === ''; }
+  function val(s, alt) { return blank(s) ? (alt || 'None on file') : String(s).trim(); }
+
+  // ---- dates (week keys are YYYY-MM-DD, handled in UTC so no timezone drift) ----
+  function parseKey(k) { var p = k.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
+  function toKey(d) { return d.toISOString().slice(0, 10); }
+  function addDays(k, n) { var d = parseKey(k); d.setUTCDate(d.getUTCDate() + n); return toKey(d); }
+  function md(k) { var d = parseKey(k); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); }
+  function todayCT() {
+    var p = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    return p; // YYYY-MM-DD
+  }
+  function sundayOnOrBefore(k) { return addDays(k, -parseKey(k).getUTCDay()); }
+
+  // ---- city from "street, City, ST ZIP" ----
+  function cityOf(addr) {
+    if (blank(addr)) return 'Unknown';
+    var parts = String(addr).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (parts.length >= 2) {
+      var st = parts[parts.length - 1].replace(/\s*\d{5}(-\d{4})?$/, '').trim();
+      if (/^[A-Za-z]{2}$/.test(st)) return parts[parts.length - 2] + ', ' + st.toUpperCase();
+    }
+    return String(addr).trim();
+  }
+
+  function statusBadge(s) {
+    if (s === 'Bid') return '<span class="badge bid">BID (not confirmed)</span>';
+    if (s === 'In-Transit') return '<span class="badge transit">In transit</span>';
+    return '<span class="badge">' + esc(s) + '</span>';
+  }
+  function driverOf(j) { return blank(j.driver_name) ? 'Available' : j.driver_name; }
+  function itemOf(j) { return j.id + '  ' + val(j.item_type, '(item not described)'); }
+
+  function stop(name, addr, phone) {
+    return esc(val(name, 'Name TBD')) + ' | ' + esc(val(addr, 'Address missing')) + ' | ' + esc(val(phone, 'No phone on file'));
+  }
+  function contactOf(j) {
+    if (blank(j.contact_name) && blank(j.contact_phone)) return null;
+    return [j.contact_name, j.contact_phone].filter(function (x) { return !blank(x); }).join(', ');
+  }
+
+  function jobCard(j, withDriver) {
+    var miss = (j.missing_info || []);
+    var c = contactOf(j);
+    return '<div class="card"><h3>' + esc(itemOf(j)) + '</h3><dl>' +
+      '<dt>Driver</dt><dd>' + esc(driverOf(j)) + '</dd>' +
+      '<dt>Item</dt><dd>' + esc(val(j.item_type, '(not described)')) + '</dd>' +
+      '<dt>Status</dt><dd>' + statusBadge(j.status) + '</dd>' +
+      '<dt>Pickup</dt><dd>' + stop(j.pickup_name, j.pickup_address, j.pickup_phone) + '</dd>' +
+      '<dt>Drop-off</dt><dd>' + stop(j.delivery_name, j.delivery_address, j.delivery_phone) + '</dd>' +
+      (c ? '<dt>Contact</dt><dd>' + esc(c) + '</dd>' : '') +
+      '<dt>Missing information</dt><dd class="' + (miss.length ? 'missing' : '') + '">' + (miss.length ? esc(miss.join('; ')) : 'None') + '</dd>' +
+      '</dl></div>';
+  }
+
+  function slug(s) { return 'd-' + String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
+
+  function render() {
+    var wk = weeks.filter(function (w) { return w.key === selected; })[0];
+    var html = '';
+    html += '<div class="tabs" role="tablist">' + weeks.map(function (w) {
+      return '<button class="tab" role="tab" data-k="' + esc(w.key) + '" aria-selected="' + (w.key === selected) + '">' + esc(w.label) +
+             '<span class="n">' + w.jobs.length + '</span></button>';
+    }).join('') + '</div>';
+
+    if (!wk) { app.innerHTML = html + '<p>No upcoming jobs.</p>'; bindTabs(); return; }
+
+    var list = wk.jobs.slice().sort(function (a, b) {
+      var da = driverOf(a), db = driverOf(b);
+      if (da === 'Available' && db !== 'Available') return 1;
+      if (db === 'Available' && da !== 'Available') return -1;
+      return da.localeCompare(db) || a.id.localeCompare(b.id, undefined, { numeric: true });
+    });
+    var avail = list.filter(function (j) { return driverOf(j) === 'Available'; });
+    var assigned = list.filter(function (j) { return driverOf(j) !== 'Available'; });
+    var drivers = [], byDriver = {};
+    assigned.forEach(function (j) { var n = driverOf(j); if (!byDriver[n]) { byDriver[n] = []; drivers.push(n); } byDriver[n].push(j); });
+    var withMissing = list.filter(function (j) { return (j.missing_info || []).length > 0; });
+    var bids = list.filter(function (j) { return j.status === 'Bid'; }).length;
+
+    html += '<div class="metrics">' +
+      '<div class="metric"><b>' + list.length + '</b><span>Jobs, ' + esc(wk.range) + '</span></div>' +
+      '<div class="metric"><b>' + drivers.length + '</b><span>Drivers with work</span></div>' +
+      '<div class="metric"><b>' + avail.length + '</b><span>Available, no driver</span></div>' +
+      '<div class="metric' + (bids ? ' warn' : '') + '"><b>' + bids + '</b><span>Bids, not confirmed</span></div></div>';
+
+    var toc = [['overview', 'Overview']];
+    if (avail.length) toc.push(['available', 'Available jobs (no driver)']);
+    if (withMissing.length) toc.push(['missing', 'Missing information']);
+    drivers.forEach(function (n) { toc.push([slug(n), n]); });
+    html += '<div class="toc">' + toc.map(function (t) { return '<a href="#' + esc(t[0]) + '">' + esc(t[1]) + '</a>'; }).join('') + '</div>';
+
+    html += '<h2 id="overview">Overview</h2><div class="tablewrap"><table><thead><tr><th>Driver</th><th>Item</th><th>Pickup city</th><th>Drop-off city</th><th>Status</th></tr></thead><tbody>' +
+      list.map(function (j) {
+        return '<tr><td>' + esc(driverOf(j)) + '</td><td>' + esc(itemOf(j)) + '</td><td>' + esc(cityOf(j.pickup_address)) + '</td><td>' + esc(cityOf(j.delivery_address)) + '</td><td>' + statusBadge(j.status) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+
+    if (avail.length) {
+      html += '<h2 id="available">Available jobs (no driver)</h2>' + avail.map(function (j) { return jobCard(j); }).join('');
+    }
+    if (withMissing.length) {
+      html += '<h2 id="missing">Missing information</h2><ul class="rows">' + withMissing.map(function (j) {
+        return '<li><span class="lead">' + esc(j.id) + '</span> ' + esc(driverOf(j) + ': ' + val(j.item_type, '(item not described)') + ', ' + cityOf(j.pickup_address) + ' to ' + cityOf(j.delivery_address)) +
+               '<div class="missing">' + esc(j.missing_info.join('. ')) + '.</div></li>';
+      }).join('') + '</ul>';
+    }
+    drivers.forEach(function (n) {
+      html += '<h2 id="' + esc(slug(n)) + '">' + esc(n) + '</h2><p class="sub">Jobs: ' + byDriver[n].length + '</p>' +
+        byDriver[n].map(function (j) { return jobCard(j); }).join('');
+    });
+
+    app.innerHTML = html;
+    bindTabs();
+  }
+
+  function bindTabs() {
+    Array.prototype.forEach.call(app.querySelectorAll('.tab'), function (b) {
+      b.addEventListener('click', function () { selected = b.getAttribute('data-k'); render(); window.scrollTo(0, 0); });
+    });
+  }
+
+  function build() {
+    var today = todayCT();
+    curKey = sundayOnOrBefore(today);
+    var nextKey = addDays(curKey, 7);
+    var map = {};
+    jobs.forEach(function (j) {
+      var k = j.week_start || 'none';
+      if (k !== 'none' && k < curKey) return; // safety: past weeks never shown
+      (map[k] = map[k] || []).push(j);
+    });
+    weeks = Object.keys(map).sort(function (a, b) { return a === 'none' ? 1 : b === 'none' ? -1 : a.localeCompare(b); }).map(function (k) {
+      if (k === 'none') return { key: k, label: 'No week set', range: 'No week set', jobs: map[k] };
+      var tag = k === curKey ? ' (current)' : k === nextKey ? ' (next)' : '';
+      return { key: k, label: md(k) + tag, range: 'Sun ' + md(k) + ' to Sat ' + md(addDays(k, 6)), jobs: map[k] };
+    });
+    selected = map[nextKey] ? nextKey : (map[curKey] ? curKey : (weeks[0] && weeks[0].key));
+  }
+
+  function stamp() {
+    var now = new Date();
+    var t = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).format(now);
+    var d = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(now);
+    loadedEl.textContent = 'Loaded ' + t + ' CT, ' + d;
+  }
+
+  fetch(SUPABASE_URL + '/rest/v1/schedule_view?select=' + COLS + '&order=week_start.asc.nullslast,id.asc', {
+    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, Accept: 'application/json' },
+    cache: 'no-store'
+  }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function (rows) {
+    jobs = rows; stamp(); build(); render();
+  }).catch(function (e) {
+    loadedEl.textContent = 'Not loaded';
+    app.innerHTML = '<div class="err">Could not load the schedule (' + esc(e.message) + '). Reload the page to try again.</div>';
+  });
+})();
+</script>
+</body>
+</html>
