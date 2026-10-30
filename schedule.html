@@ -70,7 +70,7 @@
 
   var app = document.getElementById('app');
   var loadedEl = document.getElementById('loaded');
-  var jobs = [], weeks = [], curKey = null, selected = null, photos = {};
+  var jobs = [], weeks = [], curKey = null, selected = null, photos = {}, bols = {};
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function blank(s) { return s == null || String(s).trim() === ''; }
@@ -125,6 +125,7 @@
       '<dt>Drop-off</dt><dd>' + stop(j.delivery_name, j.delivery_address, j.delivery_phone) + '</dd>' +
       (c ? '<dt>Contact</dt><dd>' + esc(c) + '</dd>' : '') +
       '<dt>Missing information</dt><dd class="' + (miss.length ? 'missing' : '') + '">' + (miss.length ? esc(miss.join('; ')) : 'None') + '</dd>' +
+      (bols[j.id] ? '<dt>Bill of lading</dt><dd><a href="bols/' + encodeURIComponent(j.id) + '.pdf" target="_blank" rel="noopener">BOL (PDF)</a></dd>' : '') +
       '</dl>' + thumbs(j.id) + '</div>';
   }
 
@@ -231,6 +232,9 @@
 
   var photosReq = fetch('photos/index.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; });
 
+  // Bills of lading: bols/index.json = array of job ids that have bols/<JOB>.pdf (published by publish.sh).
+  var bolsReq = fetch('bols/index.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
+
   fetch(SUPABASE_URL + '/rest/v1/schedule_view?select=' + COLS + '&order=week_start.asc.nullslast,id.asc', {
     headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, Accept: 'application/json' },
     cache: 'no-store'
@@ -239,6 +243,8 @@
     return r.json();
   }).then(function (rows) {
     return photosReq.then(function (p) { photos = (p && typeof p === 'object') ? p : {}; return rows; });
+  }).then(function (rows) {
+    return bolsReq.then(function (b) { bols = {}; (Array.isArray(b) ? b : []).forEach(function (id) { bols[id] = true; }); return rows; });
   }).then(function (rows) {
     jobs = rows; stamp(); build(); render();
   }).catch(function (e) {
