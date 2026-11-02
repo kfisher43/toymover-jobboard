@@ -4,7 +4,10 @@ html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 header#top{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 16px 10px}
 .logo{font-weight:800;font-size:20px;letter-spacing:.2px;border-bottom:3px solid var(--accent2)}
-#who{font-size:14px;opacity:.9}
+.usr{display:flex;align-items:center;gap:8px;min-width:0;margin-left:10px}
+#who{font-size:14px;opacity:.9;min-width:0;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#who:empty+#logout{display:none}
+#logout{flex:none;font:inherit;font-size:13px;font-weight:600;color:#fff;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.55);border-radius:8px;padding:5px 10px;line-height:1.2;cursor:pointer}
 main{max-width:640px;margin:0 auto;padding:14px 14px 24px}
 h1{font-size:22px;margin:6px 0 10px} h2{font-size:17px;margin:20px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;font-size:13px}
 .login-logo{display:block;margin:4px auto 14px;max-width:260px;width:70%;height:auto}

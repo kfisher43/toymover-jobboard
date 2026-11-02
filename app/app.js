@@ -223,7 +223,7 @@
       document.getElementById('rt').onclick = function () { start(); };
       document.getElementById('so').onclick = signOut; return;
     }
-    document.getElementById('who').textContent = S.profile.full_name || S.profile.driver_id || (S.profile.is_owner ? 'Ken' : '');
+    document.getElementById('who').textContent = S.profile.full_name || S.profile.driver_id || (S.profile.is_owner ? 'Ken' : 'Signed in');
     setTabs();
     if (!location.hash || location.hash === '#/') location.hash = '#/jobs'; else route();
   }
@@ -249,10 +249,10 @@
   function weekSelectHtml(weeks, sel) {
     var cs = chicagoSunday(), list = (weeks || []).slice();
     if (sel && !list.some(function (w) { return w.week_start === sel; })) list.push({ week_start: sel }), list.sort(function (a, b) { return a.week_start < b.week_start ? 1 : -1; });
-    var h = '<label for="wkpick">Week</label><select id="wkpick"><option value="">This week - ' + esc(longDate(cs)) + '</option>';
+    var h = '<label for="wkpick">Week</label><select id="wkpick"><option value="">' + esc(cs.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })) + '</option>';
     list.forEach(function (w) {
       var d = pd(w.week_start), diff = Math.round((d - cs) / 604800000);
-      h += '<option value="' + esc(w.week_start) + '"' + (w.week_start === sel ? ' selected' : '') + '>' + (diff === -1 ? 'Last week - ' : 'Week of ') + esc(longDate(d)) + (w.job_count ? ' (' + w.job_count + (w.job_count === 1 ? ' job' : ' jobs') + ')' : '') + '</option>';
+      h += '<option value="' + esc(w.week_start) + '"' + (w.week_start === sel ? ' selected' : '') + '>' + esc(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })) + '</option>';
     });
     return h + '</select>';
   }
@@ -767,5 +767,6 @@
   /* ---------- boot ---------- */
   sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT' && S.profile) showLogin(); if (ev === 'PASSWORD_RECOVERY') showSetPassword(); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  document.getElementById('logout').addEventListener('click', signOut);
   handleAuthUrl().then(function (handled) { if (!handled) start(); }, function () { start(); });
 })();
