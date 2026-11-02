@@ -243,50 +243,22 @@
   }
   window.addEventListener('hashchange', route);
 
-  /* ---------- Paid history (optional, off by default; toggle remembered per device) ---------- */
-  var PH_KEY = 'tm_show_paid_history', PH_PAGE = 25;
-  function phOn() { try { return localStorage.getItem(PH_KEY) === '1'; } catch (e) { return false; } }
-  function phSet(v) { try { if (v) localStorage.setItem(PH_KEY, '1'); else localStorage.removeItem(PH_KEY); } catch (e) {} }
-  function phToggleHtml() {
-    return '<label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:10px 0"><input type="checkbox" id="phtog" style="width:auto"' + (phOn() ? ' checked' : '') + '> Show paid history</label>';
-  }
-  function phBind(onChange) { var el = document.getElementById('phtog'); if (el) el.onchange = function () { phSet(this.checked); onChange(); }; }
-  // Loads Paid-history pages into box. fetchPage(offset) must return an rpc promise asking for PH_PAGE + 1 rows (the extra row = "there is more").
-  function phLoad(box, fetchPage, cardFn) {
-    var rows = [], more = false, busyNow = false;
-    function draw(err) {
-      var h = '<h2>Paid history</h2>';
-      if (err) h += '<div class="msg err">' + esc(err) + '</div>';
-      var last = null;
-      rows.forEach(function (j) {
-        if (j.week_start !== last) { last = j.week_start; h += '<div class="muted" style="margin:12px 0 2px"><b>' + esc(weekLabel(j.week_start)) + '</b></div>'; }
-        h += cardFn(j);
-      });
-      if (!rows.length && !err) h += '<div class="card muted center">No paid jobs from past weeks.</div>';
-      if (more) h += '<p><button class="btn block" id="phmore">Load more</button></p>';
-      box.innerHTML = h;
-      var b = box.querySelector('#phmore'); if (b) b.onclick = next;
-    }
-    async function next() {
-      if (busyNow) return; busyNow = true;
-      var b = box.querySelector('#phmore'); if (b) { b.disabled = true; b.textContent = 'Loading…'; }
-      try {
-        var r = await fetchPage(rows.length); if (r.error) throw r.error;
-        var d = r.data || []; more = d.length > PH_PAGE; rows = rows.concat(d.slice(0, PH_PAGE)); draw();
-      } catch (e) { draw(errMsg(e)); }
-      busyNow = false;
-    }
-    box.innerHTML = '<h2>Paid history</h2><p class="muted center">Loading…</p>';
-    return next();
-  }
-  function phCardMine(j) {
-    return '<div class="card"><div class="row"><span class="jid">' + esc(j.id) + '</span>' + badge(j) + '</div>' +
-      '<div class="item">' + esc(j.item_type || 'Item not described') + '</div>' +
-      '<div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
-      (j.driver_pay != null ? '<div class="pay">Pay ' + money(j.driver_pay) + '</div>' : '') + '</div>';
+  /* ---------- Week picker (My jobs + Team): default = this week onward; past weeks come from the *_job_weeks RPCs ---------- */
+  function ordinal(n) { var v = n % 100; if (v >= 11 && v <= 13) return n + 'th'; return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'); }
+  function longDate(d) { return d ? d.toLocaleDateString('en-US', { month: 'long' }) + ' ' + ordinal(d.getDate()) : ''; }
+  function weekSelectHtml(weeks, sel) {
+    var cs = chicagoSunday(), list = (weeks || []).slice();
+    if (sel && !list.some(function (w) { return w.week_start === sel; })) list.push({ week_start: sel }), list.sort(function (a, b) { return a.week_start < b.week_start ? 1 : -1; });
+    var h = '<label for="wkpick">Week</label><select id="wkpick"><option value="">This week - ' + esc(longDate(cs)) + '</option>';
+    list.forEach(function (w) {
+      var d = pd(w.week_start), diff = Math.round((d - cs) / 604800000);
+      h += '<option value="' + esc(w.week_start) + '"' + (w.week_start === sel ? ' selected' : '') + '>' + (diff === -1 ? 'Last week - ' : 'Week of ') + esc(longDate(d)) + (w.job_count ? ' (' + w.job_count + (w.job_count === 1 ? ' job' : ' jobs') + ')' : '') + '</option>';
+    });
+    return h + '</select>';
   }
 
   /* ---------- My jobs ---------- */
+  var MJ = { week: '' }; // '' = this week onward (default); otherwise the Sunday (yyyy-mm-dd) of a past week
   async function loadJobs(force) {
     if (S.jobs && !force) return S.jobs;
     var r = await sb.rpc('my_jobs'); if (r.error) throw r.error; S.jobs = r.data || []; return S.jobs;
@@ -306,11 +278,15 @@
     view.dataset.job = '';
     view.innerHTML = '<h1>My jobs</h1><p class="muted center">Loading…</p>';
     var jobs = await loadJobs(true); await loadStatic();
-    function phAfter() { phBind(function () { R.jobs(); }); if (phOn()) phLoad(document.getElementById('phbox'), function (off) { return sb.rpc('my_paid_history', { p_limit: PH_PAGE + 1, p_offset: off }); }, phCardMine); }
-    if (!jobs.length) { view.innerHTML = '<h1>My jobs</h1><div class="card center muted">No jobs assigned for this week or upcoming weeks.</div>' + phToggleHtml() + '<div id="phbox"></div>'; phAfter(); return; }
+    var wk = MJ.week, weeks = [];
+    try { var wr = await sb.rpc('my_job_weeks'); if (!wr.error) weeks = wr.data || []; } catch (e) {}
+    if (wk) { var wj = await sb.rpc('my_jobs_for_week', { p_week: wk }); if (wj.error) throw wj.error; jobs = wj.data || []; }
+    var pick = (weeks.length || wk) ? weekSelectHtml(weeks, wk) : '';
+    function bindPick() { var el = document.getElementById('wkpick'); if (el) el.onchange = function () { MJ.week = this.value; R.jobs(); }; }
+    if (!jobs.length) { view.innerHTML = '<h1>My jobs</h1>' + pick + (wk ? '<div class="card center muted">No jobs this week.</div>' : '<div class="card center muted">No jobs assigned for this week or upcoming weeks.</div>'); bindPick(); return; }
     var groups = {}, order = [];
     jobs.forEach(function (j) { var k = j.week_start || 'none'; if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(j); });
-    var html = '<h1>My jobs</h1>';
+    var html = '<h1>My jobs</h1>' + pick;
     order.forEach(function (k) {
       html += '<h2>' + esc(weekLabel(k === 'none' ? null : k)) + '</h2>';
       groups[k].forEach(function (j) {
@@ -322,8 +298,7 @@
           '<div class="links"><a class="btn primary" href="#/job/' + esc(j.id) + '">Open job</a>' + bolLink(j.id) + '</div></div>';
       });
     });
-    view.innerHTML = html + phToggleHtml() + '<div id="phbox"></div>';
-    phAfter();
+    view.innerHTML = html; bindPick();
   };
 
   /* ---------- Job detail ---------- */
@@ -355,6 +330,7 @@
     if (first) view.innerHTML = '<p class="muted center">Loading job…</p>';
     var jobs = await loadJobs(true); await loadStatic();
     var job = jobs.filter(function (j) { return j.id === id; })[0];
+    if (!job && MJ.week) { var wj = await sb.rpc('my_jobs_for_week', { p_week: MJ.week }); job = (wj.data || []).filter(function (j) { return j.id === id; })[0]; } // opened from a past week in the week picker
     if (!job) { view.innerHTML = '<div class="msg warn">Job not found in your list.</div><a class="btn" href="#/jobs">Back</a>'; return; }
     var y0 = window.scrollY;
     var results = await Promise.all([listPhotos(id), sb.from('job_events').select('*').eq('job_id', id).order('created_at'), sb.from('job_bols').select('*').eq('job_id', id).order('created_at'), sb.from('issues').select('id,issue_type,status,description,created_at').eq('job_id', id).order('created_at', { ascending: false })]);
@@ -659,7 +635,7 @@
   }
 
   /* ---------- Supervisor (Team) ---------- */
-  var T = { driver: '', weeks: 1 };
+  var T = { driver: '', week: '' }; // week '' = this week onward (default); otherwise the Sunday of a past week
   function needSup() { if (!S.profile || !S.profile.is_supervisor) throw new Error('Supervisors only'); }
   function teamNav(cur, openIssues) {
     var items = [['jobs', 'Jobs'], ['issues', 'Issues' + (openIssues ? ' 🚩' + openIssues : '')], ['leads', 'Leads'], ['expenses', 'Expenses']];
@@ -679,12 +655,16 @@
   };
   async function teamJobs(nav) {
     view.innerHTML = nav + '<p class="muted center">Loading…</p>';
-    var r = await sb.rpc('sup_jobs', { p_weeks_back: T.weeks }); if (r.error) throw r.error;
+    var wk = T.week;
+    var rs = await Promise.all([wk ? sb.rpc('sup_jobs_for_week', { p_week: wk }) : sb.rpc('sup_jobs', { p_weeks_back: 0 }), sb.rpc('sup_job_weeks', { p_driver: T.driver || null })]);
+    var r = rs[0]; if (r.error) throw r.error;
+    var weeks = rs[1].error ? [] : (rs[1].data || []);
     var owner = S.profile.is_owner, jobs = r.data || [];
     var drv = {}; jobs.forEach(function (j) { drv[j.driver_id || 'Unassigned'] = 1; });
+    if (wk || T.driver) { if (!S.drivers) { var dd = await sb.rpc('sup_drivers'); S.drivers = dd.data || []; } S.drivers.forEach(function (x) { drv[x.id] = 1; }); if (T.driver) drv[T.driver] = 1; }
     var f = T.driver ? jobs.filter(function (j) { return (j.driver_id || 'Unassigned') === T.driver; }) : jobs;
     var html = nav + '<label>Driver</label><select id="tf"><option value="">All drivers</option>' + Object.keys(drv).sort().map(function (d) { return '<option' + (d === T.driver ? ' selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select>' +
-      '<div class="links"><button class="btn" id="wk">' + (T.weeks ? 'Hide last week' : 'Show last week') + '</button></div>' + phToggleHtml();
+      weekSelectHtml(weeks, wk);
     var last = null;
     f.forEach(function (j) {
       if (j.week_start !== last) { last = j.week_start; html += '<h2>' + esc(weekLabel(j.week_start)) + '</h2>'; }
@@ -693,19 +673,9 @@
         '<div>' + (j.driver_pay != null ? '<span class="pay">Driver pay ' + money(j.driver_pay) + '</span>' : '') + (owner && j.price != null ? ' · Price ' + money(j.price) : '') + (j.open_issues ? ' · 🚩 ' + j.open_issues + ' open issue(s)' : '') + '</div></a>';
     });
     if (!f.length) html += '<div class="card muted center">No jobs.</div>';
-    view.innerHTML = html + '<div id="phbox"></div>';
+    view.innerHTML = html;
     document.getElementById('tf').onchange = function () { T.driver = this.value; teamJobs(nav); };
-    document.getElementById('wk').onclick = function () { T.weeks = T.weeks ? 0 : 1; teamJobs(nav); };
-    phBind(function () { teamJobs(nav); });
-    if (phOn()) {
-      var drvNow = T.driver, wkNow = T.weeks, canOpen = chicagoSunday().getTime() - 7 * 52 * 86400000; // team job detail only loads the last 52 weeks
-      phLoad(document.getElementById('phbox'), function (off) { return sb.rpc('sup_paid_history', { p_driver: drvNow || null, p_limit: PH_PAGE + 1, p_offset: off, p_weeks_back: wkNow }); }, function (j) {
-        var d = pd(j.week_start), link = d && d.getTime() >= canOpen;
-        return '<' + (link ? 'a href="#/team/job/' + esc(j.id) + '"' : 'div') + ' class="card" style="display:block;text-decoration:none;color:inherit"><div class="row"><span class="jid">' + esc(j.id) + ' · ' + esc(j.driver_id || 'Unassigned') + '</span>' + badge(j) + '</div>' +
-          '<div class="item">' + esc(j.item_type || 'Item not described') + '</div><div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
-          '<div>' + (j.driver_pay != null ? '<span class="pay">Driver pay ' + money(j.driver_pay) + '</span>' : '') + (owner && j.price != null ? ' · Price ' + money(j.price) : '') + '</div></' + (link ? 'a' : 'div') + '>';
-      });
-    }
+    document.getElementById('wkpick').onchange = function () { T.week = this.value; teamJobs(nav); };
   }
   var leafletReady = null;
   function loadLeaflet() {
@@ -720,6 +690,7 @@
     view.innerHTML = '<p class="muted center">Loading…</p>';
     var all = await sb.rpc('sup_jobs', { p_weeks_back: 52 }); if (all.error) throw all.error;
     var job = (all.data || []).filter(function (j) { return j.id === id; })[0];
+    if (!job && T.week) { var wj = await sb.rpc('sup_jobs_for_week', { p_week: T.week }); job = (wj.data || []).filter(function (j) { return j.id === id; })[0]; } // older than 52 weeks: opened from the week picker
     if (!job) { view.innerHTML = '<div class="msg warn">Job not found.</div><a class="btn" href="#/team/jobs">Back</a>'; return; }
     await loadStatic();
     if (!S.drivers) { var d = await sb.rpc('sup_drivers'); S.drivers = d.data || []; }
