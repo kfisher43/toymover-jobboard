@@ -339,7 +339,7 @@
     var urlMap = {}; photos.forEach(function (p, i) { urlMap[p.path] = urls[i]; });
     var bolUrls = bolsRows.length ? await signed('signed-bols', bolsRows.map(function (b) { return b.pdf_path; })) : [];
     var done = job.status === 'Delivered' || job.status === 'Invoiced' || job.status === 'Paid';
-    var hasPick = events.some(function (e) { return e.event_type === 'picked_up'; });
+    var hasPick = events.some(function (e) { return e.event_type === 'picked_up'; }) || job.status === 'In-Transit'; // office already marked it In-Transit: no recorded pickup needed
     var pp = photoSection(job, 'pickup', photos, urlMap, hasPick || done), dp = photoSection(job, 'delivery', photos, urlMap, done);
     var other = photos.filter(function (p) { return p.stage === 'other' || p.stage === 'issue'; });
     var h = '<p><a href="#/jobs">← My jobs</a></p><div class="card"><div class="row"><span class="jid">' + esc(job.id) + '</span>' + badge(job) + '</div>' +
@@ -351,13 +351,18 @@
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Customer contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
       '<div class="links">' + bolLink(job.id) + '</div>' + staticPhotoHtml(job.id) + '</div>';
     var canPick = !done && !hasPick && pp.ok, canTransit = !done && hasPick, canDeliver = !done && hasPick && dp.ok;
+    // Buttons are never greyed out: a button that is not ready yet looks outlined and tells the driver what is missing when tapped.
+    function stBtn(stage, text, ok, why) { return '<button class="btn ' + (ok ? 'primary' : 'soft') + '" data-stage="' + stage + '"' + (ok ? '' : ' data-block="' + esc(why) + '"') + '>' + text + '</button>'; }
+    var closedWhy = 'This job is ' + job.status + ', so the status cannot be changed from here. Ask a supervisor.';
     h += '<div class="card"><b>Status</b><p class="muted" style="margin:4px 0">Each tap records the time and your GPS location.</p>' +
-      '<div class="links"><button class="btn primary" data-stage="picked_up" ' + (canPick ? '' : 'disabled') + '>Picked up</button>' +
-      '<button class="btn primary" data-stage="in_transit" ' + (canTransit ? '' : 'disabled') + '>In transit</button>' +
-      '<button class="btn primary" data-stage="delivered" ' + (canDeliver ? '' : 'disabled') + '>Delivered</button></div>' +
+      '<div class="links">' + stBtn('picked_up', 'Picked up', canPick, done ? closedWhy : hasPick ? 'Already picked up.' : 'Take the 4 pickup photos and confirm damage first (scroll down to Pickup photos).') +
+      stBtn('in_transit', 'In transit', canTransit, done ? closedWhy : 'Mark the job Picked up first.') +
+      stBtn('delivered', 'Delivered', canDeliver, done ? closedWhy : !hasPick ? 'Mark the job Picked up first.' : 'Take the 4 delivery photos and confirm damage first (scroll down to Delivery photos).') + '</div>' +
+      (done ? '<p class="muted">This job is ' + esc(job.status) + '. Status cannot be changed from here.</p>' : '') +
       (!done && !hasPick && !pp.ok ? '<p class="muted">Take the 4 pickup photos and confirm damage to unlock “Picked up”.</p>' : '') +
       (hasPick && !done && !dp.ok ? '<p class="muted">Take the 4 delivery photos and confirm damage to unlock “Delivered”.</p>' : '') +
       '<div class="links"><button class="btn" data-checkin="' + esc(id) + '">📍 Check in</button><a class="btn" href="#/issue/' + esc(id) + '">⚠️ Report issue</a></div></div>';
+    if (S.profile.is_supervisor) h += supStatusCard(job);
     h += pp.html + dp.html;
     h += '<div class="card"><b>Signed bill of lading</b>' +
       bolsRows.map(function (b, i) { return '<div class="row" style="margin:6px 0"><span>' + esc(b.stage === 'pickup' ? 'Pickup' : 'Delivery') + ' BOL · ' + esc(b.signer_name) + '<br><span class="muted">' + esc(fmtTime(b.signed_at)) + '</span></span><a class="btn" target="_blank" rel="noopener" href="' + esc(bolUrls[i] || '#') + '">Open PDF</a></div>'; }).join('') +
@@ -366,6 +371,7 @@
     if (issues.length) h += '<div class="card"><b>Reported issues</b>' + issues.map(function (i) { return '<div style="margin:6px 0">' + (i.status === 'Open' ? '🚩 ' : '✔ ') + esc(i.issue_type.replace('_', ' ')) + ' <span class="muted">· ' + esc(i.status) + ' · ' + esc(fmtTime(i.created_at)) + '</span><br>' + esc(i.description) + '</div>'; }).join('') + '</div>';
     h += '<div class="card"><b>Timeline</b>' + timelineHtml(events) + '</div>';
     view.innerHTML = h; view.dataset.job = id;
+    if (S.profile.is_supervisor) bindSupStatus(job, function () { R.job([id]); });
     if (!first) window.scrollTo(0, y0);
   };
   function timelineHtml(events) {
@@ -398,6 +404,7 @@
   view.addEventListener('click', async function (e) {
     var b = e.target.closest('button[data-stage]');
     if (b) {
+      if (b.dataset.block) { toast(b.dataset.block, 5000); return; }
       var st = b.dataset.stage, jobId = view.dataset.job, dm = sessionStorage.getItem(damageKey(jobId, st === 'picked_up' ? 'pickup' : 'delivery')) || null;
       var label = stageLabel(st);
       if (!confirm('Mark this job as ' + label + '?')) return;
@@ -637,9 +644,10 @@
   /* ---------- Supervisor (Team) ---------- */
   var T = { driver: '', week: '' }; // week '' = this week onward (default); otherwise the Sunday of a past week
   function needSup() { if (!S.profile || !S.profile.is_supervisor) throw new Error('Supervisors only'); }
+  var JOBBOARD_URL = 'https://kfisher43.github.io/toymover-jobboard/'; // full job board (edit all jobs/fields); shown in the supervisor-only Team view
   function teamNav(cur, openIssues) {
     var items = [['jobs', 'Jobs'], ['issues', 'Issues' + (openIssues ? ' 🚩' + openIssues : '')], ['leads', 'Leads'], ['expenses', 'Expenses']];
-    return '<div class="links" style="margin:0 0 10px">' + items.map(function (i) { return '<a class="btn' + (cur === i[0] ? ' primary' : '') + '" href="#/team/' + i[0] + '">' + i[1] + '</a>'; }).join('') + '</div>';
+    return '<div class="links" style="margin:0 0 10px">' + items.map(function (i) { return '<a class="btn' + (cur === i[0] ? ' primary' : '') + '" href="#/team/' + i[0] + '">' + i[1] + '</a>'; }).join('') + '<a class="btn" id="jobboard-link" target="_blank" rel="noopener" href="' + JOBBOARD_URL + '">📋 Job board</a></div>';
   }
   async function openIssueCount() { var r = await sb.from('issues').select('id', { count: 'exact', head: true }).eq('status', 'Open'); return r.count || 0; }
   R.team = async function (a) {
@@ -677,6 +685,26 @@
     document.getElementById('tf').onchange = function () { T.driver = this.value; teamJobs(nav); };
     document.getElementById('wkpick').onchange = function () { T.week = this.value; teamJobs(nav); };
   }
+  // Supervisors (Ken, Rob) can set the status of ANY job; the server (sup_set_job_status) enforces who may use which status. Owner-only statuses: Bid, Invoiced, Paid.
+  function supStatusCard(job) {
+    var statuses = ['Booked', 'Scheduled', 'In-Transit', 'Delivered', 'Cancelled'].concat(S.profile.is_owner ? ['Bid', 'Invoiced', 'Paid'] : []);
+    if (job.status && statuses.indexOf(job.status) < 0) statuses.push(job.status);
+    return '<div class="card"><b>Supervisor: change status</b><p class="muted" style="margin:4px 0">Works on any job, with no photos needed.</p><select id="st">' +
+      statuses.map(function (x) { return '<option' + (x === job.status ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select><p><button class="btn primary block" id="stb">Update status</button></p></div>';
+  }
+  function bindSupStatus(job, after) {
+    var btn = document.getElementById('stb'); if (!btn) return;
+    btn.onclick = async function () {
+      var v = document.getElementById('st').value;
+      if (v === job.status) return toast('Already ' + v);
+      if (!confirm('Set ' + job.id + ' to ' + v + '?')) return;
+      busy(btn, true, 'Saving…');
+      var r = await sb.rpc('sup_set_job_status', { p_job_id: job.id, p_status: v, p_note: null });
+      busy(btn, false);
+      if (r.error) return toast(errMsg(r.error), 6000);
+      toast('Status updated to ' + v); after();
+    };
+  }
   var leafletReady = null;
   function loadLeaflet() {
     if (leafletReady) return leafletReady;
@@ -698,7 +726,6 @@
     var photos = res[0], events = res[1].data || [], bols = res[2].data || [], issues = res[3].data || [];
     var urls = await signed('job-photos', photos.map(function (p) { return p.path; })), bu = bols.length ? await signed('signed-bols', bols.map(function (b) { return b.pdf_path; })) : [];
     var owner = S.profile.is_owner;
-    var statuses = ['Booked', 'Scheduled', 'In-Transit', 'Delivered', 'Cancelled'].concat(owner ? ['Bid', 'Invoiced', 'Paid'] : []);
     var drvOpts = ['Available'].concat(S.drivers.map(function (x) { return x.id; }).filter(function (x) { return x !== 'Available'; }));
     var h = '<p><a href="#/team/jobs">← Team jobs</a></p><div class="card"><div class="row"><span class="jid">' + esc(job.id) + '</span>' + badge(job) + '</div>' +
       '<div class="item">' + esc(job.item_type || '') + '</div><div>Driver: <b>' + esc(job.driver_name || job.driver_id || 'Unassigned') + '</b></div>' +
@@ -708,7 +735,7 @@
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
       (owner && job.notes ? '<div class="stop"><div class="lbl">Notes (owner only)</div><div>' + esc(job.notes) + '</div></div>' : '') + '<div class="links">' + bolLink(job.id) + '</div></div>';
     h += '<div class="card"><b>Supervisor actions</b><label>Reassign driver</label><select id="rd">' + drvOpts.map(function (x) { return '<option' + (x === job.driver_id ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select><p><button class="btn block" id="rdb">Reassign</button></p>' +
-      '<label>Change status</label><select id="st">' + statuses.map(function (x) { return '<option' + (x === job.status ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select><p><button class="btn block" id="stb">Update status</button></p></div>';
+      '</div>' + supStatusCard(job);
     var ev = events.filter(function (e) { return e.lat != null; });
     h += '<div class="card"><b>Location map</b>' + (ev.length ? '<div id="map" style="height:260px;border-radius:10px;margin-top:8px"></div>' : '<p class="muted">No GPS points recorded yet.</p>') + '</div>';
     h += '<div class="card"><b>Timeline</b>' + timelineHtml(events) + '</div>';
@@ -718,7 +745,7 @@
     if (issues.length) h += '<div class="card"><b>Issues</b>' + issues.map(function (i) { return '<div style="margin:6px 0">' + (i.status === 'Open' ? '🚩 ' : '✔ ') + esc(i.issue_type) + ' · ' + esc(i.driver_id) + ' · ' + esc(fmtTime(i.created_at)) + '<br>' + esc(i.description) + '</div>'; }).join('') + '</div>';
     view.innerHTML = h;
     document.getElementById('rdb').onclick = async function () { if (!confirm('Reassign ' + id + ' to ' + document.getElementById('rd').value + '?')) return; var r = await sb.rpc('sup_reassign_job', { p_job_id: id, p_driver_id: document.getElementById('rd').value }); if (r.error) return toast(errMsg(r.error), 5000); toast('Reassigned'); teamJob(id); };
-    document.getElementById('stb').onclick = async function () { if (!confirm('Set ' + id + ' to ' + document.getElementById('st').value + '?')) return; var r = await sb.rpc('sup_set_job_status', { p_job_id: id, p_status: document.getElementById('st').value, p_note: null }); if (r.error) return toast(errMsg(r.error), 5000); toast('Status updated'); teamJob(id); };
+    bindSupStatus(job, function () { teamJob(id); });
     if (ev.length) {
       try {
         await loadLeaflet();
