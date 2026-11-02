@@ -172,7 +172,9 @@
     S.profile = (p.data && p.data[0]) || null;
     if (!S.profile) {
       tabs.hidden = true;
-      view.innerHTML = '<h1>Almost there</h1><div class="msg warn">You are signed in, but your login is not linked to a driver yet. Ask Ken to finish setting up your account.</div><p><button class="btn block" id="so">Sign out</button></p>';
+      var em = (s.data.session.user && s.data.session.user.email) || 'this login';
+      view.innerHTML = '<h1>Account not linked yet</h1><div class="msg warn">You are signed in as <b>' + esc(em) + '</b>, but this login is not linked to a Toymover driver, so there are no jobs to show. Ask Ken to link it to your driver profile (this is not something you did wrong).</div><p><button class="btn primary block" id="rt">Check again</button></p><p><button class="btn block" id="so">Sign out</button></p>';
+      document.getElementById('rt').onclick = function () { start(); };
       document.getElementById('so').onclick = signOut; return;
     }
     document.getElementById('who').textContent = S.profile.full_name || S.profile.driver_id || (S.profile.is_owner ? 'Ken' : '');
