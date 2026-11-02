@@ -243,6 +243,49 @@
   }
   window.addEventListener('hashchange', route);
 
+  /* ---------- Paid history (optional, off by default; toggle remembered per device) ---------- */
+  var PH_KEY = 'tm_show_paid_history', PH_PAGE = 25;
+  function phOn() { try { return localStorage.getItem(PH_KEY) === '1'; } catch (e) { return false; } }
+  function phSet(v) { try { if (v) localStorage.setItem(PH_KEY, '1'); else localStorage.removeItem(PH_KEY); } catch (e) {} }
+  function phToggleHtml() {
+    return '<label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:10px 0"><input type="checkbox" id="phtog" style="width:auto"' + (phOn() ? ' checked' : '') + '> Show paid history</label>';
+  }
+  function phBind(onChange) { var el = document.getElementById('phtog'); if (el) el.onchange = function () { phSet(this.checked); onChange(); }; }
+  // Loads Paid-history pages into box. fetchPage(offset) must return an rpc promise asking for PH_PAGE + 1 rows (the extra row = "there is more").
+  function phLoad(box, fetchPage, cardFn) {
+    var rows = [], more = false, busyNow = false;
+    function draw(err) {
+      var h = '<h2>Paid history</h2>';
+      if (err) h += '<div class="msg err">' + esc(err) + '</div>';
+      var last = null;
+      rows.forEach(function (j) {
+        if (j.week_start !== last) { last = j.week_start; h += '<div class="muted" style="margin:12px 0 2px"><b>' + esc(weekLabel(j.week_start)) + '</b></div>'; }
+        h += cardFn(j);
+      });
+      if (!rows.length && !err) h += '<div class="card muted center">No paid jobs from past weeks.</div>';
+      if (more) h += '<p><button class="btn block" id="phmore">Load more</button></p>';
+      box.innerHTML = h;
+      var b = box.querySelector('#phmore'); if (b) b.onclick = next;
+    }
+    async function next() {
+      if (busyNow) return; busyNow = true;
+      var b = box.querySelector('#phmore'); if (b) { b.disabled = true; b.textContent = 'Loading…'; }
+      try {
+        var r = await fetchPage(rows.length); if (r.error) throw r.error;
+        var d = r.data || []; more = d.length > PH_PAGE; rows = rows.concat(d.slice(0, PH_PAGE)); draw();
+      } catch (e) { draw(errMsg(e)); }
+      busyNow = false;
+    }
+    box.innerHTML = '<h2>Paid history</h2><p class="muted center">Loading…</p>';
+    return next();
+  }
+  function phCardMine(j) {
+    return '<div class="card"><div class="row"><span class="jid">' + esc(j.id) + '</span>' + badge(j) + '</div>' +
+      '<div class="item">' + esc(j.item_type || 'Item not described') + '</div>' +
+      '<div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
+      (j.driver_pay != null ? '<div class="pay">Pay ' + money(j.driver_pay) + '</div>' : '') + '</div>';
+  }
+
   /* ---------- My jobs ---------- */
   async function loadJobs(force) {
     if (S.jobs && !force) return S.jobs;
@@ -263,7 +306,8 @@
     view.dataset.job = '';
     view.innerHTML = '<h1>My jobs</h1><p class="muted center">Loading…</p>';
     var jobs = await loadJobs(true); await loadStatic();
-    if (!jobs.length) { view.innerHTML = '<h1>My jobs</h1><div class="card center muted">No jobs assigned for this week or upcoming weeks.</div>'; return; }
+    function phAfter() { phBind(function () { R.jobs(); }); if (phOn()) phLoad(document.getElementById('phbox'), function (off) { return sb.rpc('my_paid_history', { p_limit: PH_PAGE + 1, p_offset: off }); }, phCardMine); }
+    if (!jobs.length) { view.innerHTML = '<h1>My jobs</h1><div class="card center muted">No jobs assigned for this week or upcoming weeks.</div>' + phToggleHtml() + '<div id="phbox"></div>'; phAfter(); return; }
     var groups = {}, order = [];
     jobs.forEach(function (j) { var k = j.week_start || 'none'; if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(j); });
     var html = '<h1>My jobs</h1>';
@@ -278,7 +322,8 @@
           '<div class="links"><a class="btn primary" href="#/job/' + esc(j.id) + '">Open job</a>' + bolLink(j.id) + '</div></div>';
       });
     });
-    view.innerHTML = html;
+    view.innerHTML = html + phToggleHtml() + '<div id="phbox"></div>';
+    phAfter();
   };
 
   /* ---------- Job detail ---------- */
@@ -639,7 +684,7 @@
     var drv = {}; jobs.forEach(function (j) { drv[j.driver_id || 'Unassigned'] = 1; });
     var f = T.driver ? jobs.filter(function (j) { return (j.driver_id || 'Unassigned') === T.driver; }) : jobs;
     var html = nav + '<label>Driver</label><select id="tf"><option value="">All drivers</option>' + Object.keys(drv).sort().map(function (d) { return '<option' + (d === T.driver ? ' selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select>' +
-      '<div class="links"><button class="btn" id="wk">' + (T.weeks ? 'Hide last week' : 'Show last week') + '</button></div>';
+      '<div class="links"><button class="btn" id="wk">' + (T.weeks ? 'Hide last week' : 'Show last week') + '</button></div>' + phToggleHtml();
     var last = null;
     f.forEach(function (j) {
       if (j.week_start !== last) { last = j.week_start; html += '<h2>' + esc(weekLabel(j.week_start)) + '</h2>'; }
@@ -648,9 +693,19 @@
         '<div>' + (j.driver_pay != null ? '<span class="pay">Driver pay ' + money(j.driver_pay) + '</span>' : '') + (owner && j.price != null ? ' · Price ' + money(j.price) : '') + (j.open_issues ? ' · 🚩 ' + j.open_issues + ' open issue(s)' : '') + '</div></a>';
     });
     if (!f.length) html += '<div class="card muted center">No jobs.</div>';
-    view.innerHTML = html;
+    view.innerHTML = html + '<div id="phbox"></div>';
     document.getElementById('tf').onchange = function () { T.driver = this.value; teamJobs(nav); };
     document.getElementById('wk').onclick = function () { T.weeks = T.weeks ? 0 : 1; teamJobs(nav); };
+    phBind(function () { teamJobs(nav); });
+    if (phOn()) {
+      var drvNow = T.driver, wkNow = T.weeks, canOpen = chicagoSunday().getTime() - 7 * 52 * 86400000; // team job detail only loads the last 52 weeks
+      phLoad(document.getElementById('phbox'), function (off) { return sb.rpc('sup_paid_history', { p_driver: drvNow || null, p_limit: PH_PAGE + 1, p_offset: off, p_weeks_back: wkNow }); }, function (j) {
+        var d = pd(j.week_start), link = d && d.getTime() >= canOpen;
+        return '<' + (link ? 'a href="#/team/job/' + esc(j.id) + '"' : 'div') + ' class="card" style="display:block;text-decoration:none;color:inherit"><div class="row"><span class="jid">' + esc(j.id) + ' · ' + esc(j.driver_id || 'Unassigned') + '</span>' + badge(j) + '</div>' +
+          '<div class="item">' + esc(j.item_type || 'Item not described') + '</div><div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
+          '<div>' + (j.driver_pay != null ? '<span class="pay">Driver pay ' + money(j.driver_pay) + '</span>' : '') + (owner && j.price != null ? ' · Price ' + money(j.price) : '') + '</div></' + (link ? 'a' : 'div') + '>';
+      });
+    }
   }
   var leafletReady = null;
   function loadLeaflet() {
