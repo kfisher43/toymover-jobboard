@@ -150,7 +150,7 @@
 
   function showLogin(msg) {
     S.profile = null; tabs.hidden = true; document.getElementById('who').textContent = '';
-    view.innerHTML = '<h1>Driver login</h1><p class="muted">Sign in with the email and password Ken gave you.</p>' +
+    view.innerHTML = '<img class="login-logo" src="logo.png" alt="Toy Movers" width="600" height="386"><h1>Driver login</h1><p class="muted">Sign in with the email and password Ken gave you.</p>' +
       (msg ? '<div class="msg err">' + esc(msg) + '</div>' : '') +
       '<form id="login"><label for="em">Email</label><input id="em" type="email" autocomplete="username" inputmode="email" required>' +
       '<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>' +

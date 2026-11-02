@@ -7,6 +7,7 @@ header#top{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;d
 #who{font-size:14px;opacity:.9}
 main{max-width:640px;margin:0 auto;padding:14px 14px 24px}
 h1{font-size:22px;margin:6px 0 10px} h2{font-size:17px;margin:20px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;font-size:13px}
+.login-logo{display:block;margin:4px auto 14px;max-width:260px;width:70%;height:auto}
 .muted{color:var(--mute)} .center{text-align:center}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
 .row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
