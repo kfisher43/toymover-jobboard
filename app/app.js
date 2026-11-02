@@ -155,7 +155,17 @@
       '<form id="login"><label for="em">Email</label><input id="em" type="email" autocomplete="username" inputmode="email" required>' +
       '<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>' +
       '<p><button class="btn primary block" type="submit">Sign in</button></p></form>' +
-      '<p class="muted">Forgot your password? Ask Ken to reset it.</p><p><a href="#/help">How to add this app to your home screen</a></p>';
+      '<p><a href="#" id="fp">Forgot password?</a></p><p><a href="#/help">How to add this app to your home screen</a></p>';
+    document.getElementById('fp').addEventListener('click', async function (e) {
+      e.preventDefault();
+      var em = document.getElementById('em').value.trim();
+      if (!em || !/^\S+@\S+\.\S+$/.test(em)) { toast('Type your email address in the Email box first, then tap Forgot password?', 5000); document.getElementById('em').focus(); return; }
+      var a = e.target; a.style.pointerEvents = 'none'; toast('Sending…', 8000);
+      var r = await sb.auth.resetPasswordForEmail(em, { redirectTo: RESET_URL });
+      a.style.pointerEvents = '';
+      if (r.error) { toast(/rate|too many|seconds/i.test(r.error.message || '') ? 'Too many reset requests. Please wait a few minutes and try again.' : 'Could not send the reset email: ' + errMsg(r.error), 6000); return; }
+      toast('If that email has an account, a password reset link is on its way. Check your inbox and spam.', 9000);
+    });
     document.getElementById('login').addEventListener('submit', async function (e) {
       e.preventDefault(); var b = e.target.querySelector('button'); busy(b, true, 'Signing in…');
       var r = await sb.auth.signInWithPassword({ email: document.getElementById('em').value.trim(), password: document.getElementById('pw').value });
@@ -164,7 +174,43 @@
       location.hash = '#/jobs'; start();
     });
   }
+  var RESET_URL = 'https://kfisher43.github.io/toymover-jobboard/app/';
+  function showSetPassword(msg) {
+    S.recovering = true; S.profile = null; tabs.hidden = true; document.getElementById('who').textContent = '';
+    view.innerHTML = '<h1>Set new password</h1><p class="muted">Choose a new password (at least 8 characters).</p>' +
+      (msg ? '<div class="msg err">' + esc(msg) + '</div>' : '') +
+      '<form id="newpw"><label for="np1">New password</label><input id="np1" type="password" autocomplete="new-password" minlength="8" required>' +
+      '<label for="np2">Confirm new password</label><input id="np2" type="password" autocomplete="new-password" minlength="8" required>' +
+      '<p><button class="btn primary block" type="submit">Save password</button></p></form>';
+    document.getElementById('newpw').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var a = document.getElementById('np1').value, c = document.getElementById('np2').value;
+      if (a.length < 8) return showSetPassword('Password must be at least 8 characters.');
+      if (a !== c) return showSetPassword('The two passwords do not match.');
+      var b = e.target.querySelector('button'); busy(b, true, 'Saving…');
+      var r = await sb.auth.updateUser({ password: a });
+      busy(b, false);
+      if (r.error) return showSetPassword(errMsg(r.error));
+      S.recovering = false; toast('Password updated. You are signed in.', 4000);
+      location.hash = '#/jobs'; start();
+    });
+  }
+  // Recovery / auth links come back as #access_token=...&type=recovery (or #error=...). The app uses #/ routes, so parse the fragment by hand.
+  async function handleAuthUrl() {
+    var h = location.hash || '';
+    if (!h || h.charAt(1) === '/') return false;
+    var q = new URLSearchParams(h.slice(1));
+    var err = q.get('error_description') || q.get('error');
+    var type = q.get('type'), at = q.get('access_token'), rt = q.get('refresh_token');
+    if (!err && !(type === 'recovery' && at)) return false;
+    history.replaceState(null, '', location.pathname + location.search);
+    if (err) { showLogin(/expired|invalid/i.test(err) ? 'That reset link has expired or was already used. Tap Forgot password? to get a new one.' : err); return true; }
+    var r = await sb.auth.setSession({ access_token: at, refresh_token: rt || '' });
+    if (r.error) { showLogin('That reset link has expired or was already used. Tap Forgot password? to get a new one.'); return true; }
+    showSetPassword(); return true;
+  }
   async function start() {
+    if (S.recovering) return showSetPassword();
     var s = await sb.auth.getSession();
     if (!s.data.session) { if (location.hash === '#/help') return route(); return showLogin(); }
     var p = await sb.rpc('my_profile');
@@ -206,6 +252,13 @@
     return '<div class="stop"><div class="lbl">' + lbl + '</div><div class="nm">' + esc(name || 'TBD') + '</div><div>' + esc(addr || 'Address not set') + '</div>' +
       (phone ? '<div class="muted">' + esc(phone) + '</div>' : '') + '<div class="links">' + navLinks(addr) + callBtns(phone) + '</div></div>';
   }
+  // Auction lot / pickup PIN: the server only returns these to the assigned driver (or the owner); show only when present.
+  function auctionHtml(j) {
+    if (!j || (!j.auction_lot && !j.pickup_pin)) return '';
+    return '<div class="stop"><div class="lbl">Auction pickup</div>' +
+      (j.auction_lot ? '<div>Lot / Stock #: <b>' + esc(j.auction_lot) + '</b></div>' : '') +
+      (j.pickup_pin ? '<div>Pickup PIN: <b style="font-size:1.25em;letter-spacing:.08em">' + esc(j.pickup_pin) + '</b></div>' : '') + '</div>';
+  }
   R.jobs = async function () {
     view.dataset.job = '';
     view.innerHTML = '<h1>My jobs</h1><p class="muted center">Loading…</p>';
@@ -220,6 +273,7 @@
         html += '<div class="card"><a class="row" href="#/job/' + esc(j.id) + '" style="text-decoration:none;color:inherit"><span class="jid">' + esc(j.id) + '</span>' + badge(j) + '</a>' +
           '<div class="item">' + esc(j.item_type || 'Item not described') + '</div>' +
           '<div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
+          (j.auction_lot || j.pickup_pin ? '<div class="muted">' + (j.auction_lot ? 'Lot ' + esc(j.auction_lot) : '') + (j.auction_lot && j.pickup_pin ? ' · ' : '') + (j.pickup_pin ? 'PIN <b>' + esc(j.pickup_pin) + '</b>' : '') + '</div>' : '') +
           (j.driver_pay != null ? '<div class="pay">Pay ' + money(j.driver_pay) + '</div>' : '') +
           '<div class="links"><a class="btn primary" href="#/job/' + esc(j.id) + '">Open job</a>' + bolLink(j.id) + '</div></div>';
       });
@@ -271,7 +325,7 @@
       '<div class="item">' + esc(job.item_type || 'Item not described') + '</div>' + (job.item_category ? '<div class="muted">' + esc(job.item_category) + '</div>' : '') +
       (job.driver_pay != null ? '<div class="pay">Your pay ' + money(job.driver_pay) + '</div>' : '') +
       (job.week_start ? '<div class="muted">Week of ' + esc(fmtDate(job.week_start)) + '</div>' : '') +
-      stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) +
+      stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) + auctionHtml(job) +
       stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Customer contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
       '<div class="links">' + bolLink(job.id) + '</div>' + staticPhotoHtml(job.id) + '</div>';
@@ -624,7 +678,7 @@
       '<div class="item">' + esc(job.item_type || '') + '</div><div>Driver: <b>' + esc(job.driver_name || job.driver_id || 'Unassigned') + '</b></div>' +
       (job.driver_pay != null ? '<div class="pay">Driver pay ' + money(job.driver_pay) + '</div>' : '') +
       (owner ? '<div>Price ' + money(job.price) + ' · Broker ' + money(job.broker) + '</div>' : '') +
-      stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) + stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
+      stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) + auctionHtml(job) + stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
       (owner && job.notes ? '<div class="stop"><div class="lbl">Notes (owner only)</div><div>' + esc(job.notes) + '</div></div>' : '') + '<div class="links">' + bolLink(job.id) + '</div></div>';
     h += '<div class="card"><b>Supervisor actions</b><label>Reassign driver</label><select id="rd">' + drvOpts.map(function (x) { return '<option' + (x === job.driver_id ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select><p><button class="btn block" id="rdb">Reassign</button></p>' +
@@ -685,7 +739,7 @@
   }
 
   /* ---------- boot ---------- */
-  sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT' && S.profile) showLogin(); });
+  sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT' && S.profile) showLogin(); if (ev === 'PASSWORD_RECOVERY') showSetPassword(); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
-  start();
+  handleAuthUrl().then(function (handled) { if (!handled) start(); }, function () { start(); });
 })();
