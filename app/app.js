@@ -8,7 +8,7 @@
   var view = document.getElementById('view');
   var tabs = document.getElementById('tabs');
   var S = { profile: null, jobs: null, bols: null, staticPhotos: null, urlCache: {}, drivers: null };
-  var IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var IOS = (function(){ var ua = navigator.userAgent || '', pl = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''; if (/iPad|iPhone|iPod|CriOS|FxiOS|EdgiOS/.test(ua) || /iPhone|iPad|iPod|iOS/i.test(pl)) return true; if ((/Mac/.test(pl) || /Macintosh/.test(ua)) && (navigator.maxTouchPoints > 1 || 'ontouchend' in document)) return true; return false; })();
 
   /* ---------- helpers ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
