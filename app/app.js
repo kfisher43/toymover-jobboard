@@ -311,8 +311,8 @@
     var allSides = SLOTS.every(function (s) { return have[s[0]]; });
     var ok = allSides && (dmg === 'none' || (dmg === 'photos' && have.damage));
     var title = stage === 'pickup' ? 'Pickup photos' : 'Delivery photos';
-    var h = '<div class="card"><div class="row"><b>' + title + '</b><span class="badge ' + (ok ? 'done' : '') + '">' + (ok ? 'Ready' : 'Required') + '</span></div>' +
-      '<p class="muted" style="margin:4px 0">Take all 4 sides' + (locked ? '' : ', then confirm damage') + '.</p>';
+    var h = '<div class="card"><div class="row"><b>' + title + '</b><span class="badge ' + (ok ? 'done' : '') + '">' + (ok ? 'Ready' : 'Recommended') + '</span></div>' +
+      '<p class="muted" style="margin:4px 0">Photos recommended: all 4 sides' + (locked ? '' : ', and note any damage') + '. Not required to change status.</p>';
     SLOTS.forEach(function (s) {
       h += '<div class="row" style="align-items:center;margin:6px 0"><span>' + (have[s[0]] ? '✅ ' : '⬜ ') + s[1] + '</span>' +
         (locked ? '' : '<label class="btn">' + (have[s[0]] ? 'Retake' : 'Take photo') + '<input type="file" accept="image/*" capture="environment" hidden data-up="' + stage + ':' + s[0] + '"></label>') + '</div>';
@@ -350,17 +350,16 @@
       stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Customer contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
       '<div class="links">' + bolLink(job.id) + '</div>' + staticPhotoHtml(job.id) + '</div>';
-    var canPick = !done && !hasPick && pp.ok, canTransit = !done && hasPick, canDeliver = !done && hasPick && dp.ok;
+    var canPick = !done && !hasPick, canTransit = !done && hasPick, canDeliver = !done && hasPick; // photos are recommended, never required
     // Buttons are never greyed out: a button that is not ready yet looks outlined and tells the driver what is missing when tapped.
     function stBtn(stage, text, ok, why) { return '<button class="btn ' + (ok ? 'primary' : 'soft') + '" data-stage="' + stage + '"' + (ok ? '' : ' data-block="' + esc(why) + '"') + '>' + text + '</button>'; }
     var closedWhy = 'This job is ' + job.status + ', so the status cannot be changed from here. Ask a supervisor.';
     h += '<div class="card"><b>Status</b><p class="muted" style="margin:4px 0">Each tap records the time and your GPS location.</p>' +
-      '<div class="links">' + stBtn('picked_up', 'Picked up', canPick, done ? closedWhy : hasPick ? 'Already picked up.' : 'Take the 4 pickup photos and confirm damage first (scroll down to Pickup photos).') +
+      '<div class="links">' + stBtn('picked_up', 'Picked up', canPick, done ? closedWhy : hasPick ? 'Already picked up.' : '') +
       stBtn('in_transit', 'In transit', canTransit, done ? closedWhy : 'Mark the job Picked up first.') +
-      stBtn('delivered', 'Delivered', canDeliver, done ? closedWhy : !hasPick ? 'Mark the job Picked up first.' : 'Take the 4 delivery photos and confirm damage first (scroll down to Delivery photos).') + '</div>' +
+      stBtn('delivered', 'Delivered', canDeliver, done ? closedWhy : !hasPick ? 'Mark the job Picked up first.' : '') + '</div>' +
       (done ? '<p class="muted">This job is ' + esc(job.status) + '. Status cannot be changed from here.</p>' : '') +
-      (!done && !hasPick && !pp.ok ? '<p class="muted">Take the 4 pickup photos and confirm damage to unlock “Picked up”.</p>' : '') +
-      (hasPick && !done && !dp.ok ? '<p class="muted">Take the 4 delivery photos and confirm damage to unlock “Delivered”.</p>' : '') +
+      (!done && !(hasPick ? dp.ok : pp.ok) ? '<p class="muted">Photos recommended (see ' + (hasPick ? 'Delivery' : 'Pickup') + ' photos below), but not required.</p>' : '') +
       '<div class="links"><button class="btn" data-checkin="' + esc(id) + '">📍 Check in</button><a class="btn" href="#/issue/' + esc(id) + '">⚠️ Report issue</a></div></div>';
     if (S.profile.is_supervisor) h += supStatusCard(job);
     h += pp.html + dp.html;
