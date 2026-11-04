@@ -792,7 +792,14 @@
 
   /* ---------- boot ---------- */
   sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT' && S.profile) showLogin(); if (ev === 'PASSWORD_RECOVERY') showSetPassword(); });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) {
+    var hadCtl = !!navigator.serviceWorker.controller, reloaded = false;
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+    }).catch(function () {});
+    // When a new app version takes over, reload once so drivers always run the latest code.
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadCtl && !reloaded) { reloaded = true; location.reload(); } });
+  }
   document.getElementById('logout').addEventListener('click', signOut);
   handleAuthUrl().then(function (handled) { if (!handled) start(); }, function () { start(); });
 })();
