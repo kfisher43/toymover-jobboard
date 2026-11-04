@@ -1,5 +1,5 @@
 // Toymover driver app: caches the app shell only. API calls (Supabase) are never cached.
-const CACHE = 'toymover-app-v15';
+const CACHE = 'toymover-app-v16';
 const SHELL = ['./', './index.html', './app.js', './style.css', './supabase.js', './manifest.webmanifest', './pdf-lib.min.js', './leaflet.js', './leaflet.css',
   './logo.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', (e) => {
@@ -15,7 +15,7 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== location.origin) return;            // Supabase, signed photo URLs: network only
   if (!url.pathname.startsWith(new URL('./', self.location).pathname)) return; // ../bols, ../photos: network only
   // network first, fall back to cache so the shell opens offline and updates are picked up
-  e.respondWith(fetch(req).then((res) => {
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then((res) => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
     return res;
   }).catch(() => caches.match(req).then((r) => r || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error()))));
