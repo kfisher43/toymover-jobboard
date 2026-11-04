@@ -315,7 +315,7 @@
       '<p class="muted" style="margin:4px 0">Photos recommended: all 4 sides' + (locked ? '' : ', and note any damage') + '. Not required to change status.</p>';
     SLOTS.forEach(function (s) {
       h += '<div class="row" style="align-items:center;margin:6px 0"><span>' + (have[s[0]] ? '✅ ' : '⬜ ') + s[1] + '</span>' +
-        (locked ? '' : '<label class="btn">' + (have[s[0]] ? 'Retake' : 'Take photo') + '<input type="file" accept="image/*" capture="environment" hidden data-up="' + stage + ':' + s[0] + '"></label>') + '</div>';
+        (locked ? '' : '<label class="btn">' + (have[s[0]] ? 'Replace photo' : 'Upload a photo') + '<input type="file" accept="image/*" hidden data-up="' + stage + ':' + s[0] + '"></label>') + '</div>';
     });
     h += '<div style="margin-top:8px"><b>Any damage?</b>' +
       '<label style="font-weight:400"><input type="radio" name="dmg-' + stage + '" value="none" ' + (dmg === 'none' ? 'checked' : '') + ' ' + (locked ? 'disabled' : '') + ' style="width:auto"> No damage</label>' +
