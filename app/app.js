@@ -304,7 +304,8 @@
   /* ---------- Job detail ---------- */
   var SLOTS = [['front', 'Front'], ['back', 'Back'], ['left', 'Left side'], ['right', 'Right side']];
   function damageKey(id, st) { return 'dmg:' + id + ':' + st; }
-  function photoSection(job, stage, photos, urlMap, locked) {
+  function photoSection(job, stage, photos, urlMap) {
+    var locked = false; // photo buttons always show, at every job status
     var mine = photos.filter(function (p) { return p.stage === stage; });
     var have = {}; mine.forEach(function (p) { have[p.slot] = (have[p.slot] || 0) + 1; });
     var dmg = sessionStorage.getItem(damageKey(job.id, stage)) || (have.damage ? 'photos' : '');
