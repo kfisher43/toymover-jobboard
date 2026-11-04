@@ -340,7 +340,7 @@
     var bolUrls = bolsRows.length ? await signed('signed-bols', bolsRows.map(function (b) { return b.pdf_path; })) : [];
     var done = job.status === 'Delivered' || job.status === 'Invoiced' || job.status === 'Paid';
     var hasPick = events.some(function (e) { return e.event_type === 'picked_up'; }) || job.status === 'In-Transit'; // office already marked it In-Transit: no recorded pickup needed
-    var pp = photoSection(job, 'pickup', photos, urlMap, hasPick || done), dp = photoSection(job, 'delivery', photos, urlMap, done);
+    var pp = photoSection(job, 'pickup', photos, urlMap, false), dp = photoSection(job, 'delivery', photos, urlMap, false); // photos can be added any time
     var other = photos.filter(function (p) { return p.stage === 'other' || p.stage === 'issue'; });
     var h = '<p><a href="#/jobs">← My jobs</a></p><div class="card"><div class="row"><span class="jid">' + esc(job.id) + '</span>' + badge(job) + '</div>' +
       '<div class="item">' + esc(job.item_type || 'Item not described') + '</div>' + (job.item_category ? '<div class="muted">' + esc(job.item_category) + '</div>' : '') +
