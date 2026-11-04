@@ -1,3 +1,5 @@
+var APP_VERSION = '1.16 (Nov 4, 2026)';
+try { document.addEventListener('DOMContentLoaded', function () { var v = document.getElementById('appver'); if (v) v.textContent = 'App version ' + APP_VERSION; }); var v0 = document.getElementById('appver'); if (v0) v0.textContent = 'App version ' + APP_VERSION; } catch (e) {}
 /* Toymover driver app. Vanilla JS, Supabase Auth + RPC + Storage. Only the public anon/publishable key lives here. */
 (function () {
   'use strict';
