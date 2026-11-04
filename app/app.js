@@ -1,4 +1,4 @@
-var APP_VERSION = '1.16 (Nov 4, 2026)';
+var APP_VERSION = '1.17 (Nov 4, 2026)';
 try { document.addEventListener('DOMContentLoaded', function () { var v = document.getElementById('appver'); if (v) v.textContent = 'App version ' + APP_VERSION; }); var v0 = document.getElementById('appver'); if (v0) v0.textContent = 'App version ' + APP_VERSION; } catch (e) {}
 /* Toymover driver app. Vanilla JS, Supabase Auth + RPC + Storage. Only the public anon/publishable key lives here. */
 (function () {
@@ -30,10 +30,12 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
   }
   function toast(msg, ms) { var t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, ms || 2600); }
   function errMsg(e) { return (e && (e.message || e.error_description || e.msg)) || String(e); }
-  function stageLabel(st) { return { picked_up: 'Picked up', in_transit: 'In transit', delivered: 'Delivered' }[st] || ''; }
+  function stageLabel(st) { return { picked_up: 'Picked up', in_transit: 'In transit', delivered: 'Delivered', paid: 'Paid' }[st] || ''; }
+  var PAY_METHODS = ['Zelle', 'Cash', 'Venmo', 'Check', 'PayPal', 'Invoice', 'Credit Card']; // must match jobs_payment_method_check; method only, never an amount
   function badge(job) {
     var cls = job.status === 'In-Transit' ? 'transit' : (job.status === 'Delivered' || job.status === 'Paid') ? 'done' : '';
-    var extra = job.stage && job.status !== 'Delivered' ? ' · ' + stageLabel(job.stage) : '';
+    var extra = job.stage && job.status !== 'Delivered' && job.status !== 'Paid' ? ' · ' + stageLabel(job.stage) : '';
+    if (job.status === 'Paid' && job.payment_method) extra = ' · ' + job.payment_method; // Paid badge shows the method
     return '<span class="badge ' + cls + '">' + esc(job.status || '') + esc(extra) + '</span>';
   }
   function phones(txt) { return (String(txt || '').match(/\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4}/g) || []).filter(function (v, i, a) { return a.indexOf(v) === i; }); }
@@ -297,7 +299,7 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
           '<div class="muted">' + esc(j.pickup_address || j.pickup_name || '?') + ' → ' + esc(j.delivery_address || j.delivery_customer || '?') + '</div>' +
           (j.auction_lot || j.pickup_pin ? '<div class="muted">' + (j.auction_lot ? 'Lot ' + esc(j.auction_lot) : '') + (j.auction_lot && j.pickup_pin ? ' · ' : '') + (j.pickup_pin ? 'PIN <b>' + esc(j.pickup_pin) + '</b>' : '') + '</div>' : '') +
           (j.driver_pay != null ? '<div class="pay">Pay ' + money(j.driver_pay) + '</div>' : '') +
-          '<div class="links"><a class="btn primary" href="#/job/' + esc(j.id) + '">Open job</a>' + bolLink(j.id) + '</div></div>';
+          '<div class="links"><a class="btn primary" href="#/job/' + esc(j.id) + '">Open job</a>' + bolLink(j.id) + (j.status === 'Delivered' ? '<button class="btn" data-markpaid="' + esc(j.id) + '">Mark Paid</button>' : '') + '</div></div>';
       });
     });
     view.innerHTML = html; bindPick();
@@ -364,6 +366,8 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
       (done ? '<p class="muted">This job is ' + esc(job.status) + '. Status cannot be changed from here.</p>' : '') +
       (!done && !(hasPick ? dp.ok : pp.ok) ? '<p class="muted">Photos recommended (see ' + (hasPick ? 'Delivery' : 'Pickup') + ' photos below), but not required.</p>' : '') +
       '<div class="links"><button class="btn" data-checkin="' + esc(id) + '">📍 Check in</button><a class="btn" href="#/issue/' + esc(id) + '">⚠️ Report issue</a></div></div>';
+    if (job.status === 'Delivered') h += '<div class="card"><b>Payment</b><p class="muted" style="margin:4px 0">Customer paid? Record how you were paid.</p><div class="links"><button class="btn primary" data-markpaid="' + esc(id) + '">Mark Paid</button></div></div>';
+    else if (job.status === 'Paid' && job.payment_method) h += '<div class="card"><b>Payment</b><div class="muted">Paid via ' + esc(job.payment_method) + (job.paid_at ? ' · ' + esc(fmtTime(job.paid_at)) : '') + '</div></div>';
     if (S.profile.is_supervisor) h += supStatusCard(job);
     h += pp.html + dp.html;
     h += '<div class="card"><b>Signed bill of lading</b>' +
@@ -378,10 +382,10 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
   };
   function timelineHtml(events) {
     if (!events.length) return '<p class="muted">No activity yet.</p>';
-    var names = { picked_up: 'Picked up', in_transit: 'In transit', delivered: 'Delivered', checkin: 'Check-in', status_change: 'Status change', reassigned: 'Reassigned', bol_signed: 'BOL signed', lead_converted: 'Created from lead' };
+    var names = { picked_up: 'Picked up', in_transit: 'In transit', delivered: 'Delivered', paid: 'Paid', checkin: 'Check-in', status_change: 'Status change', reassigned: 'Reassigned', bol_signed: 'BOL signed', lead_converted: 'Created from lead' };
     return events.map(function (e) {
       var loc = e.lat != null && e.lng != null ? ' · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=' + e.lat + ',' + e.lng + '">map</a>' : (['picked_up', 'in_transit', 'delivered', 'checkin'].indexOf(e.event_type) >= 0 ? ' · <span class="muted">no GPS</span>' : '');
-      return '<div style="margin:8px 0"><b>' + esc(names[e.event_type] || e.event_type) + '</b>' + (e.driver_id ? ' <span class="muted">' + esc(e.driver_id) + '</span>' : '') + '<br><span class="muted">' + esc(fmtTime(e.created_at)) + '</span>' + loc + (e.note ? '<br>' + esc(e.note) : '') + '</div>';
+      return '<div style="margin:8px 0"><b>' + esc(names[e.event_type] || e.event_type) + '</b>' + (e.event_type === 'paid' && e.details && e.details.payment_method ? ' · ' + esc(e.details.payment_method) : '') + (e.driver_id ? ' <span class="muted">' + esc(e.driver_id) + '</span>' : '') + '<br><span class="muted">' + esc(fmtTime(e.created_at)) + '</span>' + loc + (e.note ? '<br>' + esc(e.note) : '') + '</div>';
     }).join('');
   }
 
@@ -403,7 +407,29 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
       } catch (err) { toast('Upload failed: ' + errMsg(err), 5000); }
     }
   });
+  // Mark Paid: method picker (Zelle, Cash, Venmo, Check, PayPal, Invoice, Credit Card). Calls driver_mark_job_paid; server allows it only for the assigned driver and only once Delivered.
+  function openPayPicker(jobId, trigger) {
+    var old = document.getElementById('paypick'); if (old) old.remove();
+    var ov = document.createElement('div'); ov.id = 'paypick';
+    ov.innerHTML = '<div class="sheet"><b>How was ' + esc(jobId) + ' paid?</b><p class="muted" style="margin:4px 0 8px">Choose the payment method.</p>' +
+      PAY_METHODS.map(function (m) { return '<button class="btn block" data-paymethod="' + esc(m) + '">' + esc(m) + '</button>'; }).join('') +
+      '<button class="btn block soft" data-paycancel="1">Cancel</button></div>';
+    ov.addEventListener('click', async function (ev) {
+      if (ev.target === ov || ev.target.closest('[data-paycancel]')) { ov.remove(); return; }
+      var mb = ev.target.closest('button[data-paymethod]'); if (!mb) return;
+      var method = mb.dataset.paymethod;
+      if (!confirm('Mark ' + jobId + ' as Paid via ' + method + '?')) return;
+      busy(mb, true, 'Saving…');
+      var r = await sb.rpc('driver_mark_job_paid', { p_job_id: jobId, p_method: method, p_note: null });
+      if (r.error) { busy(mb, false); toast(errMsg(r.error), 6000); return; }
+      ov.remove(); S.jobs = null; toast('Marked Paid via ' + method, 4000);
+      if (view.dataset.job) await R.job([view.dataset.job]); else await R.jobs();
+    });
+    document.body.appendChild(ov);
+  }
   view.addEventListener('click', async function (e) {
+    var mp = e.target.closest('button[data-markpaid]');
+    if (mp) { openPayPicker(mp.dataset.markpaid, mp); return; }
     var b = e.target.closest('button[data-stage]');
     if (b) {
       if (b.dataset.block) { toast(b.dataset.block, 5000); return; }
