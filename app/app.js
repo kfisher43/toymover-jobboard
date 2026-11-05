@@ -1,4 +1,4 @@
-var APP_VERSION = '1.17 (Nov 4, 2026)';
+var APP_VERSION = '1.18 (Nov 5, 2026)';
 try { document.addEventListener('DOMContentLoaded', function () { var v = document.getElementById('appver'); if (v) v.textContent = 'App version ' + APP_VERSION; }); var v0 = document.getElementById('appver'); if (v0) v0.textContent = 'App version ' + APP_VERSION; } catch (e) {}
 /* Toymover driver app. Vanilla JS, Supabase Auth + RPC + Storage. Only the public anon/publishable key lives here. */
 (function () {
@@ -354,7 +354,7 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
       stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) + auctionHtml(job) +
       stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Customer contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
-      '<div class="links">' + bolLink(job.id) + '</div>' + staticPhotoHtml(job.id) + '</div>';
+      '<div class="links">' + bolLink(job.id) + '<button class="btn" id="regenerate-bol">Regenerate BOL</button></div><p class="muted">Creates a fresh unsigned PDF on this device; does not replace signed BOLs.</p>' + staticPhotoHtml(job.id) + '</div>';
     var canPick = !done && !hasPick, canTransit = !done && hasPick, canDeliver = !done && hasPick; // photos are recommended, never required
     // Buttons are never greyed out: a button that is not ready yet looks outlined and tells the driver what is missing when tapped.
     function stBtn(stage, text, ok, why) { return '<button class="btn ' + (ok ? 'primary' : 'soft') + '" data-stage="' + stage + '"' + (ok ? '' : ' data-block="' + esc(why) + '"') + '>' + text + '</button>'; }
@@ -377,6 +377,7 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
     if (issues.length) h += '<div class="card"><b>Reported issues</b>' + issues.map(function (i) { return '<div style="margin:6px 0">' + (i.status === 'Open' ? '🚩 ' : '✔ ') + esc(i.issue_type.replace('_', ' ')) + ' <span class="muted">· ' + esc(i.status) + ' · ' + esc(fmtTime(i.created_at)) + '</span><br>' + esc(i.description) + '</div>'; }).join('') + '</div>';
     h += '<div class="card"><b>Timeline</b>' + timelineHtml(events) + '</div>';
     view.innerHTML = h; view.dataset.job = id;
+    bindRegenerateBol(job, false);
     if (S.profile.is_supervisor) bindSupStatus(job, function () { R.job([id]); });
     if (!first) window.scrollTo(0, y0);
   };
@@ -455,6 +456,46 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
     if (r.error) return toast(errMsg(r.error), 5000);
     toast('Checked in' + (loc ? '' : ' (no GPS)'));
     if (jobId && view.dataset.job === jobId) R.job([jobId]);
+  }
+
+  /* ---------- Regenerate BOL (unsigned, device-local; no storage mutation) ---------- */
+  function bindRegenerateBol(loadedJob, supervisor) {
+    var btn = document.getElementById('regenerate-bol'); if (!btn) return;
+    btn.onclick = async function () {
+      // Reserve a tab during the user gesture, before awaiting the latest authorized RPC.
+      var popup = window.open('about:blank', '_blank');
+      if (popup) { popup.opener = null; popup.document.title = 'Building BOL'; popup.document.body.textContent = 'Building latest bill of lading...'; }
+      busy(btn, true, 'Building PDF…');
+      try {
+        var offline = navigator.onLine === false, job = loadedJob;
+        if (!offline) {
+          var r = supervisor ? await sb.rpc('sup_jobs', { p_weeks_back: 52 }) : await sb.rpc('my_jobs');
+          if (r.error) throw r.error;
+          job = (r.data || []).filter(function (j) { return j.id === loadedJob.id; })[0];
+          if (!job) {
+            var wk = loadedJob.week_start;
+            if (wk) {
+              r = await sb.rpc(supervisor ? 'sup_jobs_for_week' : 'my_jobs_for_week', { p_week: wk });
+              if (r.error) throw r.error;
+              job = (r.data || []).filter(function (j) { return j.id === loadedJob.id; })[0];
+            }
+          }
+          if (!job) throw new Error('Job is no longer visible. Refresh your jobs list.');
+        }
+        var driver = supervisor ? (job.driver_name || job.driver_id || '') : (S.profile.full_name || S.profile.driver_id || '');
+        var pdf = ToymoverBOL.build(job, driver, offline), blob = pdf.output('blob');
+        var url = URL.createObjectURL(blob), filename = 'BOL_' + job.id.replace(/[^a-z0-9_-]/gi, '') + '.pdf';
+        // Keep a visible Open / Download fallback for popup blockers and mobile PDF viewers.
+        var out = document.getElementById('regenerated-bol-output');
+        if (!out) { out = document.createElement('div'); out.id = 'regenerated-bol-output'; btn.parentNode.insertAdjacentElement('afterend', out); }
+        if (out.dataset.url) URL.revokeObjectURL(out.dataset.url);
+        out.dataset.url = url;
+        out.innerHTML = '<div class="links"><a class="btn primary" target="_blank" rel="noopener" href="' + esc(url) + '">Open regenerated BOL</a><a class="btn" download="' + esc(filename) + '" href="' + esc(url) + '">Download PDF</a></div>';
+        if (popup) popup.location.replace(url);
+        toast(offline ? 'BOL generated offline from last loaded data.' : 'BOL regenerated from latest job data.', 5000);
+      } catch (err) { if (popup) popup.close(); toast('Could not regenerate BOL: ' + errMsg(err), 7000); }
+      finally { busy(btn, false); }
+    };
   }
 
   /* ---------- BOL signing ---------- */
@@ -761,7 +802,7 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
       (owner ? '<div>Price ' + money(job.price) + ' · Broker ' + money(job.broker) + '</div>' : '') +
       stopHtml('Pickup', job.pickup_name, job.pickup_address, job.pickup_phone) + auctionHtml(job) + stopHtml('Delivery', job.delivery_customer, job.delivery_address, job.delivery_phone) +
       (job.contact_name || job.contact_phone ? '<div class="stop"><div class="lbl">Contact</div><div class="nm">' + esc(job.contact_name || '') + '</div><div class="links">' + callBtns(job.contact_phone) + '</div></div>' : '') +
-      (owner && job.notes ? '<div class="stop"><div class="lbl">Notes (owner only)</div><div>' + esc(job.notes) + '</div></div>' : '') + '<div class="links">' + bolLink(job.id) + '</div></div>';
+      (owner && job.notes ? '<div class="stop"><div class="lbl">Notes (owner only)</div><div>' + esc(job.notes) + '</div></div>' : '') + '<div class="links">' + bolLink(job.id) + '<button class="btn" id="regenerate-bol">Regenerate BOL</button></div><p class="muted">Creates a fresh unsigned PDF on this device; does not replace signed BOLs.</p></div>';
     h += '<div class="card"><b>Supervisor actions</b><label>Reassign driver</label><select id="rd">' + drvOpts.map(function (x) { return '<option' + (x === job.driver_id ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select><p><button class="btn block" id="rdb">Reassign</button></p>' +
       '</div>' + supStatusCard(job);
     var ev = events.filter(function (e) { return e.lat != null; });
@@ -772,6 +813,7 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
     h += '<div class="card"><b>Signed BOLs</b>' + (bols.length ? bols.map(function (b, i) { return '<div class="row" style="margin:6px 0"><span>' + esc(b.stage) + ' · ' + esc(b.signer_name) + '<br><span class="muted">' + esc(fmtTime(b.signed_at)) + (b.condition_notes ? ' · ' + esc(b.condition_notes) : '') + '</span></span><a class="btn" target="_blank" rel="noopener" href="' + esc(bu[i]) + '">PDF</a></div>'; }).join('') : '<p class="muted">None signed yet.</p>') + '</div>';
     if (issues.length) h += '<div class="card"><b>Issues</b>' + issues.map(function (i) { return '<div style="margin:6px 0">' + (i.status === 'Open' ? '🚩 ' : '✔ ') + esc(i.issue_type) + ' · ' + esc(i.driver_id) + ' · ' + esc(fmtTime(i.created_at)) + '<br>' + esc(i.description) + '</div>'; }).join('') + '</div>';
     view.innerHTML = h;
+    bindRegenerateBol(job, true);
     document.getElementById('rdb').onclick = async function () { if (!confirm('Reassign ' + id + ' to ' + document.getElementById('rd').value + '?')) return; var r = await sb.rpc('sup_reassign_job', { p_job_id: id, p_driver_id: document.getElementById('rd').value }); if (r.error) return toast(errMsg(r.error), 5000); toast('Reassigned'); teamJob(id); };
     bindSupStatus(job, function () { teamJob(id); });
     if (ev.length) {

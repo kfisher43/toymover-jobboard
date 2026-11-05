@@ -1,6 +1,6 @@
 // Toymover driver app: caches the app shell only. API calls (Supabase) are never cached.
-const CACHE = 'toymover-app-v18';
-const SHELL = ['./', './index.html', './app.js', './style.css', './supabase.js', './manifest.webmanifest', './pdf-lib.min.js', './leaflet.js', './leaflet.css',
+const CACHE = 'toymover-app-v19';
+const SHELL = ['./', './index.html', './app.js', './app.js?v=18', './style.css?v=17', './jspdf.umd.min.js', './bol.js', './style.css', './supabase.js', './manifest.webmanifest', './pdf-lib.min.js', './leaflet.js', './leaflet.css',
   './logo.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
