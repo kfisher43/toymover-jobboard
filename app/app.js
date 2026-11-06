@@ -1,4 +1,4 @@
-var APP_VERSION = '1.18 (Nov 5, 2026)';
+var APP_VERSION = '1.19 (Nov 5, 2026)';
 try { document.addEventListener('DOMContentLoaded', function () { var v = document.getElementById('appver'); if (v) v.textContent = 'App version ' + APP_VERSION; }); var v0 = document.getElementById('appver'); if (v0) v0.textContent = 'App version ' + APP_VERSION; } catch (e) {}
 /* Toymover driver app. Vanilla JS, Supabase Auth + RPC + Storage. Only the public anon/publishable key lives here. */
 (function () {
@@ -483,7 +483,8 @@ try { document.addEventListener('DOMContentLoaded', function () { var v = docume
           if (!job) throw new Error('Job is no longer visible. Refresh your jobs list.');
         }
         var driver = supervisor ? (job.driver_name || job.driver_id || '') : (S.profile.full_name || S.profile.driver_id || '');
-        var pdf = ToymoverBOL.build(job, driver, offline), blob = pdf.output('blob');
+        // Auction lot and pickup PIN are included only when the authorized RPC supplies them. Never include financial fields.
+        var pdf = ToymoverBOL.build(job, driver, offline, { auction_lot: job.auction_lot, pickup_pin: job.pickup_pin }), blob = pdf.output('blob');
         var url = URL.createObjectURL(blob), filename = 'BOL_' + job.id.replace(/[^a-z0-9_-]/gi, '') + '.pdf';
         // Keep a visible Open / Download fallback for popup blockers and mobile PDF viewers.
         var out = document.getElementById('regenerated-bol-output');
